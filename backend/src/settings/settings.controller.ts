@@ -47,6 +47,15 @@ export class SettingsController {
     return this.settingsService.deleteWhatsAppIntegration(req.user.workspaceId, id);
   }
 
+  @Post('whatsapp/test')
+  async testWhatsAppConnection(@Body() credentials: {
+    phoneNumberId: string;
+    businessAccountId: string;
+    accessToken: string;
+  }) {
+    return this.settingsService.testWhatsAppConnection(credentials);
+  }
+
   // ============================================================
   // SHOPIFY INTEGRATION
   // ============================================================
@@ -78,5 +87,23 @@ export class SettingsController {
   @Post('shopify/webhooks/register')
   async registerShopifyWebhooks(@Request() req) {
     return this.settingsService.registerShopifyWebhooks(req.user.workspaceId);
+  }
+
+  @Post('shopify/test')
+  async testShopifyConnection(@Body() credentials: {
+    shopDomain: string;
+    clientId: string;
+    clientSecret: string;
+  }) {
+    return this.settingsService.testShopifyConnection(credentials);
+  }
+
+  // ============================================================
+  // WEBHOOK URLS
+  // ============================================================
+
+  @Get('webhook-urls')
+  async getWebhookUrls(@Request() req) {
+    return this.settingsService.getWebhookUrls(req.user.workspaceId);
   }
 }

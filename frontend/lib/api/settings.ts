@@ -108,4 +108,41 @@ export const settingsApi = {
     });
     return response.data;
   },
+
+  // Connection Testing
+  testWhatsAppConnection: async (
+    token: string,
+    credentials: {
+      phoneNumberId: string;
+      businessAccountId: string;
+      accessToken: string;
+    }
+  ) => {
+    const response = await axios.post(`${API_URL}/settings/whatsapp/test`, credentials, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return response.data;
+  },
+
+  testShopifyConnection: async (
+    token: string,
+    credentials: {
+      shopDomain: string;
+      clientId: string;
+      clientSecret: string;
+    }
+  ) => {
+    const response = await axios.post(`${API_URL}/settings/shopify/test`, credentials, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return response.data;
+  },
+
+  // Webhook URLs
+  getWebhookUrls: async (token: string) => {
+    const response = await axios.get(`${API_URL}/settings/webhook-urls`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return response.data;
+  },
 };

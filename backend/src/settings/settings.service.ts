@@ -1,8 +1,10 @@
-import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { HttpService } from '@nestjs/axios';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateWhatsAppIntegrationDto, UpdateWhatsAppIntegrationDto } from './dto/whatsapp-integration.dto';
 import { CreateShopifyStoreDto, UpdateShopifyStoreDto } from './dto/shopify-store.dto';
+import { firstValueFrom } from 'rxjs';
 
 @Injectable()
 export class SettingsService {
@@ -11,6 +13,7 @@ export class SettingsService {
   constructor(
     private prisma: PrismaService,
     private config: ConfigService,
+    private httpService: HttpService,
   ) {}
 
   // ============================================================
@@ -592,5 +595,224 @@ export class SettingsService {
 
     this.logger.log(`Shopify store ${storeId} deleted`);
     return { message: 'Shopify store deleted successfully' };
+  }
+
+  // ============================================================
+  // CONNECTION TESTING
+  // ============================================================
+
+  /**
+   * Test WhatsApp credentials by calling Meta Graph API
+   */
+  async testWhatsAppConnection(credentials: {
+    phoneNumberId: string;
+    businessAccountId: string;
+    accessToken: string;
+  }) {
+    try {
+      // Test 1: Verify access token by calling /me endpoint
+      const meResponse = await firstValueFrom(
+        this.httpService.get('https://graph.facebook.com/v18.0/me', {
+          headers: { Authorization: `Bearer ${credentials.accessToken}` },
+          params: { fields: 'id,name' },
+        })
+      );
+
+      if (!meResponse.data?.id) {
+        throw new Error('Invalid access token - unable to verify identity');
+      }
+
+      // Test 2: Verify phone number ID is accessible
+      const phoneResponse = await firstValueFrom(
+        this.httpService.get(
+          `https://graph.facebook.com/v18.0/${credentials.phoneNumberId}`,
+          {
+            headers: { Authorization: `Bearer ${credentials.accessToken}` },
+            params: { fields: 'id,verified_name,display_phone_number,quality_rating' },
+          }
+        )
+      );
+
+      if (!phoneResponse.data?.id) {
+        throw new Error('Phone Number ID not found or inaccessible');
+      }
+
+      // Test 3: Verify business account access
+      const wabaResponse = await firstValueFrom(
+        this.httpService.get(
+          `https://graph.facebook.com/v18.0/${credentials.businessAccountId}`,
+          {
+            headers: { Authorization: `Bearer ${credentials.accessToken}` },
+            params: { fields: 'id,name,message_template_namespace' },
+          }
+        )
+      );
+
+      if (!wabaResponse.data?.id) {
+        throw new Error('Business Account ID not found or inaccessible');
+      }
+
+      this.logger.log('✅ WhatsApp connection test passed');
+      
+      return {
+        success: true,
+        message: 'All checks passed! Your WhatsApp connection is ready.',
+        details: {
+          tokenValid: true,
+          phoneNumberAccessible: true,
+          phoneNumber: phoneResponse.data.display_phone_number,
+          verifiedName: phoneResponse.data.verified_name,
+          qualityRating: phoneResponse.data.quality_rating,
+          businessAccountAccessible: true,
+          businessAccountName: wabaResponse.data.name,
+        },
+      };
+    } catch (error: any) {
+      this.logger.error(`❌ WhatsApp connection test failed: ${error.message}`);
+      
+      // Parse error for user-friendly message
+      let userMessage = 'Connection test failed. Please check your credentials.';
+      let errorCode = null;
+      
+      if (error.response?.data?.error) {
+        const fbError = error.response.data.error;
+        errorCode = fbError.code;
+        
+        // Map common error codes to user-friendly messages
+        switch (fbError.code) {
+          case 190:
+            userMessage = '❌ Access token expired or invalid. Please generate a new token from Meta Business Manager.';
+            break;
+          case 100:
+            if (fbError.message.includes('phone number')) {
+              userMessage = '❌ Phone Number ID not found. Please verify the ID from your WhatsApp API Setup panel.';
+            } else if (fbError.message.includes('business')) {
+              userMessage = '❌ Business Account ID not found. Please verify the ID from Meta Business Settings.';
+            } else {
+              userMessage = `❌ Invalid parameter: ${fbError.message}`;
+            }
+            break;
+          case 10:
+            userMessage = '❌ Permission denied. Your access token does not have the required permissions (whatsapp_business_messaging, whatsapp_business_management).';
+            break;
+          case 4:
+            userMessage = '❌ Rate limit exceeded. Please wait a few minutes and try again.';
+            break;
+          default:
+            userMessage = `❌ Meta API Error (${fbError.code}): ${fbError.message}`;
+        }
+      } else if (error.message) {
+        userMessage = `❌ ${error.message}`;
+      }
+      
+      return {
+        success: false,
+        message: userMessage,
+        errorCode,
+        details: {
+          tokenValid: false,
+          phoneNumberAccessible: false,
+          businessAccountAccessible: false,
+        },
+      };
+    }
+  }
+
+  /**
+   * Test Shopify credentials by attempting token exchange
+   */
+  async testShopifyConnection(credentials: {
+    shopDomain: string;
+    clientId: string;
+    clientSecret: string;
+  }) {
+    try {
+      // Attempt to exchange credentials for access token
+      const { accessToken, scopes } = await this.exchangeShopifyCredentials(
+        credentials.shopDomain,
+        credentials.clientId,
+        credentials.clientSecret,
+      );
+
+      // If we got here, credentials are valid
+      this.logger.log('✅ Shopify connection test passed');
+      
+      return {
+        success: true,
+        message: 'All checks passed! Your Shopify store is ready to connect.',
+        details: {
+          credentialsValid: true,
+          shopDomain: credentials.shopDomain,
+          scopes: scopes.split(','),
+          tokenReceived: true,
+        },
+      };
+    } catch (error: any) {
+      this.logger.error(`❌ Shopify connection test failed: ${error.message}`);
+      
+      let userMessage = 'Connection test failed. Please check your credentials.';
+      
+      if (error.message.includes('Failed to authenticate')) {
+        userMessage = '❌ Invalid Client ID or Client Secret. Please verify your credentials from Shopify Partners portal.';
+      } else if (error.message.includes('shop domain')) {
+        userMessage = '❌ Invalid shop domain. Please use the format: yourstore.myshopify.com';
+      } else if (error.message.includes('ENOTFOUND') || error.message.includes('getaddrinfo')) {
+        userMessage = '❌ Shop domain not found. Please verify your store URL is correct.';
+      } else {
+        userMessage = `❌ ${error.message}`;
+      }
+      
+      return {
+        success: false,
+        message: userMessage,
+        details: {
+          credentialsValid: false,
+          tokenReceived: false,
+        },
+      };
+    }
+  }
+
+  // ============================================================
+  // WEBHOOK URLS
+  // ============================================================
+
+  /**
+   * Get pre-formatted webhook URLs for easy copying
+   */
+  async getWebhookUrls(workspaceId: string) {
+    const apiUrl = this.config.get('API_URL') || 'http://localhost:3000';
+    const webhookVerifyToken = this.config.get('WHATSAPP_WEBHOOK_VERIFY_TOKEN');
+    
+    return {
+      whatsapp: {
+        callbackUrl: `${apiUrl}/api/whatsapp/webhook`,
+        verifyToken: webhookVerifyToken || 'not-configured-in-env',
+        setupInstructions: [
+          '1. Go to Meta App Dashboard → WhatsApp → Configuration',
+          '2. Click "Edit" in Webhook section',
+          '3. Paste the Callback URL above',
+          '4. Paste the Verify Token above',
+          '5. Subscribe to "messages" webhook field',
+          '6. Click "Verify and Save"',
+        ],
+      },
+      shopify: {
+        callbackUrls: {
+          orderCreated: `${apiUrl}/api/webhooks/shopify/orders/create`,
+          orderUpdated: `${apiUrl}/api/webhooks/shopify/orders/update`,
+          orderCancelled: `${apiUrl}/api/webhooks/shopify/orders/cancelled`,
+        },
+        setupInstructions: [
+          '1. In Shopify Admin, go to Settings → Notifications',
+          '2. Scroll to "Webhooks" section',
+          '3. Click "Create webhook" for each event',
+          '4. Select JSON format',
+          '5. Paste the corresponding Callback URL',
+          '6. Click "Save webhook"',
+        ],
+        note: 'Or use the "Register Webhooks" button to auto-configure (requires valid Shopify connection)',
+      },
+    };
   }
 }
