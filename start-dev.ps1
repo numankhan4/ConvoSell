@@ -1,0 +1,165 @@
+#!/usr/bin/env pwsh
+# WhatsApp CRM - Development Environment Launcher
+# This script starts all required services for local development
+
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host "WhatsApp CRM - Development Environment" -ForegroundColor Cyan
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host ""
+
+# Function to check if a command exists
+function Test-Command {
+    param($cmdname)
+    return [bool](Get-Command -Name $cmdname -ErrorAction SilentlyContinue)
+}
+
+# Function to check if port is in use
+function Test-Port {
+    param($port)
+    $connection = Test-NetConnection -ComputerName localhost -Port $port -InformationLevel Quiet -WarningAction SilentlyContinue
+    return $connection
+}
+
+# Check prerequisites
+Write-Host "[1/6] Checking prerequisites..." -ForegroundColor Yellow
+$prerequisites = @{
+    "Node.js" = "node"
+    "npm" = "npm"
+    "Docker" = "docker"
+}
+
+$missingPrerequisites = @()
+foreach ($prereq in $prerequisites.GetEnumerator()) {
+    if (Test-Command $prereq.Value) {
+        Write-Host "  ✓ $($prereq.Key) is installed" -ForegroundColor Green
+    } else {
+        Write-Host "  ✗ $($prereq.Key) is NOT installed" -ForegroundColor Red
+        $missingPrerequisites += $prereq.Key
+    }
+}
+
+if ($missingPrerequisites.Count -gt 0) {
+    Write-Host ""
+    Write-Host "ERROR: Missing prerequisites: $($missingPrerequisites -join ', ')" -ForegroundColor Red
+    Write-Host "Please install them and try again." -ForegroundColor Red
+    exit 1
+}
+Write-Host ""
+
+# Check if Docker is running
+Write-Host "[2/6] Checking Docker..." -ForegroundColor Yellow
+try {
+    docker ps | Out-Null
+    Write-Host "  ✓ Docker is running" -ForegroundColor Green
+} catch {
+    Write-Host "  ✗ Docker is not running" -ForegroundColor Red
+    Write-Host "  Please start Docker Desktop and try again." -ForegroundColor Red
+    exit 1
+}
+Write-Host ""
+
+# Start Docker containers
+Write-Host "[3/6] Starting Docker containers (PostgreSQL + Redis)..." -ForegroundColor Yellow
+docker-compose up -d
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "  ✓ Docker containers started" -ForegroundColor Green
+    Start-Sleep -Seconds 3
+} else {
+    Write-Host "  ✗ Failed to start Docker containers" -ForegroundColor Red
+    exit 1
+}
+Write-Host ""
+
+# Check if ports are available
+Write-Host "[4/6] Checking required ports..." -ForegroundColor Yellow
+$ports = @{
+    "3000" = "Backend API"
+    "3004" = "Frontend"
+}
+
+$portsInUse = @()
+foreach ($port in $ports.GetEnumerator()) {
+    if (Test-Port $port.Key) {
+        Write-Host "  ⚠ Port $($port.Key) ($($port.Value)) is already in use" -ForegroundColor Yellow
+        $portsInUse += $port.Key
+    } else {
+        Write-Host "  ✓ Port $($port.Key) ($($port.Value)) is available" -ForegroundColor Green
+    }
+}
+
+if ($portsInUse.Count -gt 0) {
+    Write-Host ""
+    $response = Read-Host "Some ports are in use. Kill existing processes? (y/N)"
+    if ($response -eq 'y' -or $response -eq 'Y') {
+        Write-Host "  Stopping existing Node.js processes..." -ForegroundColor Yellow
+        Get-Process -Name node -ErrorAction SilentlyContinue | Stop-Process -Force
+        Start-Sleep -Seconds 2
+        Write-Host "  ✓ Processes stopped" -ForegroundColor Green
+    } else {
+        Write-Host "  Please manually stop the services on ports: $($portsInUse -join ', ')" -ForegroundColor Yellow
+        exit 1
+    }
+}
+Write-Host ""
+
+# Start services
+Write-Host "[5/6] Starting application services..." -ForegroundColor Yellow
+Write-Host ""
+
+Write-Host "  → Starting Backend API..." -ForegroundColor Cyan
+$backendPath = Join-Path $PSScriptRoot "backend"
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$backendPath'; Write-Host '=== WhatsApp CRM Backend ===' -ForegroundColor Green; npm run start:dev" -WindowStyle Normal
+Start-Sleep -Seconds 5
+
+Write-Host "  → Starting Worker..." -ForegroundColor Cyan
+$workerPath = Join-Path $PSScriptRoot "worker"
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$workerPath'; Write-Host '=== WhatsApp CRM Worker ===' -ForegroundColor Green; npm run start:dev" -WindowStyle Normal
+Start-Sleep -Seconds 3
+
+Write-Host "  → Starting Frontend..." -ForegroundColor Cyan
+$frontendPath = Join-Path $PSScriptRoot "frontend"
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$frontendPath'; Write-Host '=== WhatsApp CRM Frontend ===' -ForegroundColor Green; npm run dev" -WindowStyle Normal
+Start-Sleep -Seconds 3
+
+Write-Host ""
+Write-Host "[6/6] Verifying services..." -ForegroundColor Yellow
+Start-Sleep -Seconds 5
+
+$services = @{
+    "Backend API" = 3000
+    "Frontend" = 3004
+    "PostgreSQL" = 5432
+    "Redis" = 6379
+}
+
+foreach ($service in $services.GetEnumerator()) {
+    if (Test-Port $service.Value) {
+        Write-Host "  ✓ $($service.Key) is running on port $($service.Value)" -ForegroundColor Green
+    } else {
+        Write-Host "  ⚠ $($service.Key) may not be ready yet on port $($service.Value)" -ForegroundColor Yellow
+    }
+}
+
+Write-Host ""
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host "All services started successfully!" -ForegroundColor Green
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "🌐 Frontend:        " -NoNewline
+Write-Host "http://localhost:3004" -ForegroundColor Cyan
+Write-Host "🔌 Backend API:     " -NoNewline
+Write-Host "http://localhost:3000/api" -ForegroundColor Cyan
+Write-Host "🗄️  Database:        " -NoNewline
+Write-Host "PostgreSQL on localhost:5432" -ForegroundColor Cyan
+Write-Host "💾 Cache:           " -NoNewline
+Write-Host "Redis on localhost:6379" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "📝 Logs are available in separate terminal windows" -ForegroundColor Yellow
+Write-Host "🛑 To stop: Close the terminal windows or use stop-dev.ps1" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "============================================" -ForegroundColor Cyan
+
+# Keep script running
+Write-Host ""
+Write-Host "Press any key to exit this launcher..." -ForegroundColor Gray
+$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")

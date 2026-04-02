@@ -1,0 +1,39 @@
+{
+  "name": "whatsapp-crm",
+  "version": "1.0.0",
+  "description": "WhatsApp CRM for Pakistani COD Sellers - Root Package",
+  "private": true,
+  "scripts": {
+    "start": "node scripts/start-all.js",
+    "start:windows": "start-wt.bat",
+    "start:tabs": "powershell -ExecutionPolicy Bypass -File start-tabs.ps1",
+    "start:powershell": "powershell -ExecutionPolicy Bypass -File start-dev.ps1",
+    "start:old": "start-dev.bat",
+    "stop": "powershell -ExecutionPolicy Bypass -File stop-dev.ps1",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f",
+    "install:all": "npm install && cd backend && npm install && cd ../worker && npm install && cd ../frontend && npm install",
+    "build:all": "cd backend && npm run build && cd ../worker && npm run build && cd ../frontend && npm run build",
+    "prisma:migrate": "cd backend && npm run prisma:migrate",
+    "prisma:generate": "cd backend && npm run prisma:generate && cd ../worker && npm run prisma:generate",
+    "prisma:studio": "cd backend && npm run prisma:studio",
+    "backend": "cd backend && npm run start:dev",
+    "worker": "cd worker && npm run start:dev",
+    "frontend": "cd frontend && npm run dev",
+    "lint:all": "cd backend && npm run lint && cd ../frontend && npm run lint"
+  },
+  "keywords": [
+    "whatsapp",
+    "crm",
+    "cod",
+    "ecommerce",
+    "pakistan"
+  ],
+  "author": "",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}

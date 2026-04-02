@@ -1,0 +1,367 @@
+// This is your Prisma schema file
+// Multi-tenant WhatsApp CRM schema with outbox pattern for reliability
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// TENANT & AUTH
+// ============================================================
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String   // bcrypt hashed
+  firstName String?
+  lastName  String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships WorkspaceMember[]
+  auditLogs   AuditLog[]
+
+  @@map("users")
+}
+
+model Workspace {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  plan        String   @default("free") // free, starter, professional, enterprise
+  isActive    Boolean  @default(true)
+  maxMembers  Int      @default(3)
+  maxContacts Int      @default(1000)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members              WorkspaceMember[]
+  contacts             Contact[]
+  conversations        Conversation[]
+  messages             Message[]
+  orders               Order[]
+  tags                 Tag[]
+  automations          Automation[]
+  whatsappIntegrations WhatsAppIntegration[]
+  shopifyStores        ShopifyStore[]
+  outboxEvents         OutboxEvent[]
+  auditLogs            AuditLog[]
+
+  @@index([slug])
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        String   @default("agent") // owner, admin, agent, viewer
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+  @@map("workspace_members")
+}
+
+// ============================================================
+// WHATSAPP INTEGRATION
+// ============================================================
+
+model WhatsAppIntegration {
+  id                String   @id @default(cuid())
+  workspaceId       String
+  phoneNumberId     String   @unique // Meta Cloud API phone number ID
+  phoneNumber       String // Display number (e.g., +92300...)
+  businessAccountId String
+  accessToken       String // Encrypted in production
+  webhookVerifyToken String
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@map("whatsapp_integrations")
+}
+
+// ============================================================
+// SHOPIFY INTEGRATION
+// ============================================================
+
+model ShopifyStore {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  shopDomain    String   @unique // e.g., mystore.myshopify.com
+  
+  // Shopify 2026: Client Credentials (OAuth 2.0)
+  clientId      String // From Partners Dashboard
+  clientSecret  String // From Partners Dashboard (encrypted)
+  accessToken   String? // Auto-generated token (expires in 24h)
+  tokenExpiresAt DateTime? // When to refresh token
+  
+  scopes        String // Granted scopes
+  isActive      Boolean  @default(true)
+  installedAt   DateTime @default(now())
+  lastSyncAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  orders    Order[]
+
+  @@index([workspaceId])
+  @@map("shopify_stores")
+}
+
+// ============================================================
+// CRM CORE
+// ============================================================
+
+model Contact {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  whatsappPhone  String? // Customer's WhatsApp number (E.164 format)
+  name           String?
+  email          String?
+  tags           String[] @default([]) // Tag IDs (for quick filtering)
+  customFields   Json?    @default("{}") // Flexible metadata
+  totalOrders    Int      @default(0)
+  totalSpent     Float    @default(0)
+  lastContactAt  DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversations Conversation[]
+  orders        Order[]
+
+  @@unique([workspaceId, whatsappPhone])
+  @@index([workspaceId, whatsappPhone])
+  @@index([workspaceId, lastContactAt])
+  @@map("contacts")
+}
+
+model Conversation {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  contactId      String
+  status         String    @default("open") // open, closed, snoozed
+  assignedToId   String?
+  lastMessageAt  DateTime?
+  lastMessagePreview String?
+  unreadCount    Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact   Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  messages  Message[]
+
+  @@index([workspaceId, status, lastMessageAt])
+  @@index([contactId])
+  @@map("conversations")
+}
+
+model Message {
+  id              String    @id @default(cuid())
+  workspaceId     String
+  conversationId  String
+  direction       String // inbound, outbound
+  type            String    @default("text") // text, image, document, template, button
+  content         String?   @db.Text
+  mediaUrl        String?
+  metadata        Json?     @default("{}") // Button payloads, template vars, etc.
+  
+  // WhatsApp provider fields
+  whatsappMessageId String?  @unique // Meta's message ID (for status tracking)
+  status            String?  @default("pending") // pending, sent, delivered, read, failed
+  errorCode         String?
+  errorMessage      String?
+
+  sentBy      String? // userId if outbound manual
+  sentAt      DateTime?
+  deliveredAt DateTime?
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, conversationId, createdAt])
+  @@index([whatsappMessageId])
+  @@map("messages")
+}
+
+model Tag {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  color       String   @default("#3b82f6") // Hex color
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
+  @@map("tags")
+}
+
+// ============================================================
+// ORDERS
+// ============================================================
+
+model Order {
+  id                  String    @id @default(cuid())
+  workspaceId         String
+  contactId           String
+  shopifyStoreId      String?
+  
+  externalOrderId     String // Shopify order ID or custom
+  externalOrderNumber String? // Shopify order number (#1001)
+  
+  status              String    @default("pending") // pending, confirmed, cancelled, completed
+  paymentMethod       String    @default("cod") // cod, prepaid
+  
+  totalAmount         Float
+  currency            String    @default("PKR")
+  
+  items               Json      @default("[]") // Order line items
+  shippingAddress     Json?     // Customer address
+  
+  confirmedAt         DateTime?
+  cancelledAt         DateTime?
+  deliveredAt         DateTime?
+  
+  // Automation tracking
+  confirmationSentAt  DateTime?
+  reminderSentAt      DateTime?
+  
+  // Enhanced automation fields
+  responseTimeMinutes Int? // Time taken to confirm/cancel (minutes)
+  feedbackReason      String? // Cancellation reason: wrong_item, changed_mind, price
+  shopifyFulfillmentId String? // Track fulfillment in Shopify
+  shopifyCancelled    Boolean @default(false) // Track if cancelled in Shopify
+  
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  workspace     Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact       Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  shopifyStore  ShopifyStore? @relation(fields: [shopifyStoreId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, externalOrderId])
+  @@index([workspaceId, status, createdAt])
+  @@index([contactId])
+  @@map("orders")
+}
+
+// ============================================================
+// AUTOMATIONS
+// ============================================================
+
+model Automation {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  
+  // Simple rule-based automation (MVP)
+  trigger     Json     // { type: "order_created", conditions: { paymentMethod: "cod" } }
+  actions     Json     // [{ type: "send_message", template: "...", delay: 0 }]
+  
+  // Stats
+  executionCount Int   @default(0)
+  lastExecutedAt DateTime?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, isActive])
+  @@map("automations")
+}
+
+// ============================================================
+// OUTBOX PATTERN (Reliable async processing)
+// ============================================================
+
+model OutboxEvent {
+  id          String   @id @default(cuid())
+  workspaceId String
+  
+  eventType   String   // order.created, message.send, order.reminder
+  aggregateId String   // ID of the entity (orderId, messageId, etc.)
+  payload     Json
+  
+  status      String   @default("pending") // pending, processing, completed, failed
+  attempts    Int      @default(0)
+  maxAttempts Int      @default(3)
+  lastError   String?
+  
+  processedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status, createdAt])
+  @@index([eventType, status])
+  @@map("outbox_events")
+}
+
+// ============================================================
+// WEBHOOK IDEMPOTENCY
+// ============================================================
+
+model WebhookEvent {
+  id            String   @id @default(cuid())
+  source        String   // shopify, meta
+  externalId    String   @unique // Shopify webhook ID or Meta message ID
+  eventType     String   // orders/create, messages
+  payload       Json
+  processedAt   DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  @@index([source, externalId])
+  @@map("webhook_events")
+}
+
+// ============================================================
+// AUDIT LOG
+// ============================================================
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String?
+  action      String   // user.login, order.confirmed, message.sent
+  entityType  String?  // order, contact, message
+  entityId    String?
+  metadata    Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+  @@index([userId])
+  @@map("audit_logs")
+}

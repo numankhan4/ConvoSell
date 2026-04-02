@@ -1,0 +1,904 @@
+'use client';
+
+import { useEffect, useState, useRef } from 'react';
+import { ordersApi, automationsApi } from '@/lib/api';
+import toast from 'react-hot-toast';
+import Link from 'next/link';
+
+export default function OrdersPage() {
+  const [orders, setOrders] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statistics, setStatistics] = useState<any>(null);
+  const [automations, setAutomations] = useState<any[]>([]);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(20);
+  const [paginationMeta, setPaginationMeta] = useState<any>(null);
+  
+  // Manual trigger modal
+  const [showTriggerModal, setShowTriggerModal] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState<any>(null);
+  const [triggering, setTriggering] = useState(false);
+
+  // Debounced search effect
+  useEffect(() => {
+    const debounceTimer = setTimeout(() => {
+      setCurrentPage(1); // Reset to first page on search
+    }, 300); // 300ms debounce
+
+    return () => clearTimeout(debounceTimer);
+  }, [searchQuery]);
+
+  // Reset to page 1 when filter or items per page changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, itemsPerPage]);
+
+  // Load automations once on mount
+  useEffect(() => {
+    loadAutomations();
+  }, []);
+
+  // Main effect for loading orders and polling
+  useEffect(() => {
+    loadOrders();
+    loadStatistics();
+
+    // Poll orders every 5 seconds to catch WhatsApp button updates
+    pollingIntervalRef.current = setInterval(() => {
+      loadOrders();
+      loadStatistics();
+    }, 5000);
+
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
+  }, [statusFilter, currentPage, itemsPerPage, searchQuery]);
+
+  const loadOrders = async () => {
+    try {
+      const params: any = {
+        page: currentPage,
+        limit: itemsPerPage,
+      };
+      if (statusFilter !== 'all') params.status = statusFilter;
+      if (searchQuery.trim()) params.search = searchQuery.trim();
+      
+      console.log('📊 Loading orders with params:', params);
+      
+      const response = await ordersApi.getOrders(params);
+      setOrders(response.data.data);
+      setPaginationMeta(response.data.meta);
+      
+      console.log('✅ Loaded', response.data.data.length, 'orders, total:', response.data.meta.total);
+    } catch (error) {
+      console.error('Failed to load orders', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadStatistics = async () => {
+    try {
+      const params: any = {};
+      if (statusFilter !== 'all') params.status = statusFilter;
+      
+      const response = await ordersApi.getStatistics(params);
+      setStatistics(response.data);
+    } catch (error) {
+      console.error('Failed to load statistics', error);
+    }
+  };
+
+  const loadAutomations = async () => {
+    try {
+      const response = await automationsApi.getAutomations();
+      setAutomations(response.data || []);
+    } catch (error) {
+      console.error('Failed to load automations', error);
+    }
+  };
+
+  const handleManualTrigger = async (orderId: string, automationId?: string) => {
+    setTriggering(true);
+    try {
+      const response = await automationsApi.executeManually(orderId, automationId);
+      toast.success(response.data.message || 'Automation executed successfully!');
+      setShowTriggerModal(false);
+      setSelectedOrder(null);
+      loadOrders(); // Reload to show updated confirmationSentAt
+    } catch (error: any) {
+      console.error('Failed to execute automation', error);
+      toast.error(error.response?.data?.message || 'Failed to execute automation');
+    } finally {
+      setTriggering(false);
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    const colors: any = {
+      pending: 'bg-yellow-100 text-yellow-800',
+      confirmed: 'bg-green-100 text-green-800',
+      cancelled: 'bg-red-100 text-red-800',
+      completed: 'bg-blue-100 text-blue-800',
+    };
+    return colors[status] || 'bg-gray-100 text-gray-800';
+  };
+
+  const getFeedbackLabel = (reason: string | null | undefined) => {
+    if (!reason) return '';
+    const labels: any = {
+      wrong_item: '❌ Wrong Item',
+      changed_mind: '🤔 Changed Mind',
+      price: '💰 Price Issue',
+    };
+    return labels[reason] || '';
+  };
+
+  const getShopifyOrderUrl = (order: any) => {
+    if (order.shopifyStore?.shopDomain && order.externalOrderId) {
+      return `https://${order.shopifyStore.shopDomain}/admin/orders/${order.externalOrderId}`;
+    }
+    return null;
+  };
+
+  const canSendConfirmation = (order: any) => {
+    // Only allow sending confirmation for pending orders
+    // Confirmed, cancelled, and completed orders should not be re-triggered
+    return order.status === 'pending';
+  };
+
+  const getDisabledReason = (order: any) => {
+    if (order.status === 'confirmed') return 'Order already confirmed by customer';
+    if (order.status === 'cancelled') return 'Cannot send confirmation for cancelled orders';
+    if (order.status === 'completed') return 'Order already completed';
+    return '';
+  };
+
+  return (
+    <div className="space-y-4 sm:space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Orders</h1>
+          <p className="text-sm sm:text-base text-slate-600 mt-1">Track and manage your customer orders</p>
+        </div>
+      </div>
+
+      {/* Search and Filters */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        {/* Search Input */}
+        <div className="flex-1">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Search by order #, customer name, or phone..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-10 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm"
+            />
+            <svg 
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" 
+              fill="none" 
+              stroke="currentColor" 
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Status Filters */}
+        <div className="flex gap-2 overflow-x-auto pb-2 sm:pb-0 -mx-1 px-1 scrollbar-hide">
+          {['all', 'pending', 'confirmed', 'cancelled', 'completed'].map((status) => (
+            <button
+              key={status}
+              onClick={() => setStatusFilter(status)}
+              className={`px-3 sm:px-4 py-2 rounded-lg capitalize text-xs sm:text-sm font-medium transition-all whitespace-nowrap flex-shrink-0 ${
+                statusFilter === status
+                  ? 'bg-primary-500 text-white shadow-sm'
+                  : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
+              }`}
+            >
+              {status}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Summary Cards */}
+      {statistics && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+          <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-3 sm:p-4">
+            <div className="flex items-start justify-between">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs sm:text-sm text-slate-600 truncate">Total</p>
+                <p className="text-xl sm:text-2xl font-bold text-slate-900 mt-1">{statistics.totalOrders}</p>
+              </div>
+              <div className="w-8 h-8 sm:w-10 sm:h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                <svg className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-3 sm:p-4">
+            <div className="flex items-start justify-between">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs sm:text-sm text-slate-600 truncate">Pending</p>
+                <p className="text-xl sm:text-2xl font-bold text-yellow-600 mt-1">{statistics.pendingOrders}</p>
+              </div>
+              <div className="w-8 h-8 sm:w-10 sm:h-10 bg-yellow-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                <svg className="w-4 h-4 sm:w-5 sm:h-5 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-3 sm:p-4">
+            <div className="flex items-start justify-between">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs sm:text-sm text-slate-600 truncate">Confirmed</p>
+                <p className="text-xl sm:text-2xl font-bold text-green-600 mt-1">{statistics.confirmedOrders}</p>
+              </div>
+              <div className="w-8 h-8 sm:w-10 sm:h-10 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                <svg className="w-4 h-4 sm:w-5 sm:h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-3 sm:p-4">
+            <div className="flex items-start justify-between">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs sm:text-sm text-slate-600 truncate">Cancelled</p>
+                <p className="text-xl sm:text-2xl font-bold text-red-600 mt-1">{statistics.cancelledOrders}</p>
+              </div>
+              <div className="w-8 h-8 sm:w-10 sm:h-10 bg-red-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                <svg className="w-4 h-4 sm:w-5 sm:h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Orders Table */}
+      {loading ? (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 sm:p-12 text-center">
+          <div className="animate-spin rounded-full h-10 w-10 sm:h-12 sm:w-12 border-b-2 border-primary-500 mx-auto"></div>
+          <p className="mt-4 text-sm sm:text-base text-slate-600">Loading orders...</p>
+        </div>
+      ) : orders.length === 0 ? (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 sm:p-12 text-center">
+          <svg className="w-12 h-12 sm:w-16 sm:h-16 text-slate-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+          </svg>
+          <h3 className="text-base sm:text-lg font-semibold text-slate-900 mb-2">No orders found</h3>
+          <p className="text-sm sm:text-base text-slate-600">Orders will appear here once your store starts receiving them</p>
+        </div>
+      ) : (
+        <>
+          {/* Mobile Card View */}
+          <div className="lg:hidden space-y-3">
+            {orders.map((order) => (
+              <div key={order.id} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 hover:shadow-md transition-shadow">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2">
+                      {getShopifyOrderUrl(order) ? (
+                        <a
+                          href={getShopifyOrderUrl(order)!}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary-600 hover:text-primary-700 font-semibold text-sm inline-flex items-center gap-1"
+                          title="Open in Shopify Admin"
+                        >
+                          Order #{order.externalOrderNumber}
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          </svg>
+                        </a>
+                      ) : (
+                        <Link
+                          href={`/dashboard/orders/${order.id}`}
+                          className="text-primary-600 hover:text-primary-700 font-semibold text-sm"
+                        >
+                          Order #{order.externalOrderNumber}
+                        </Link>
+                      )}
+                    </div>
+                  </div>
+                  <span
+                    className={`px-2.5 py-1 rounded-full text-xs font-semibold ${getStatusColor(
+                      order.status
+                    )}`}
+                    title={order.status === 'cancelled' && order.feedbackReason ? `Reason: ${getFeedbackLabel(order.feedbackReason)}` : undefined}
+                  >
+                    {order.status}
+                  </span>
+                </div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Customer:</span>
+                    <span className="text-slate-900 font-medium">{order.contact?.name || 'Unknown'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Amount:</span>
+                    <span className="text-slate-900 font-semibold">{order.currency} {order.totalAmount}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Payment:</span>
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                      order.paymentMethod === 'cod' 
+                        ? 'bg-orange-100 text-orange-700' 
+                        : 'bg-blue-100 text-blue-700'
+                    }`}>
+                      {order.paymentMethod?.toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Date:</span>
+                    <span className="text-slate-500">{new Date(order.createdAt).toLocaleDateString()}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-600">Confirmation:</span>
+                    {order.confirmationSentAt ? (
+                      <span className="flex items-center text-green-600 text-xs">
+                        <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        Sent
+                      </span>
+                    ) : (
+                      <span className="text-slate-400 text-xs">Not sent</span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setSelectedOrder(order);
+                    setShowTriggerModal(true);
+                  }}
+                  disabled={!canSendConfirmation(order)}
+                  className={`mt-3 w-full inline-flex items-center justify-center px-3 py-2 text-sm rounded-lg transition-colors ${
+                    canSendConfirmation(order)
+                      ? 'bg-primary-600 text-white hover:bg-primary-700'
+                      : 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                  }`}
+                  title={canSendConfirmation(order) ? (order.confirmationSentAt ? 'Resend confirmation' : 'Send confirmation') : getDisabledReason(order)}
+                >
+                  <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                  {order.confirmationSentAt ? 'Resend Confirmation' : 'Send Confirmation'}
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* Pagination (Mobile) */}
+          {paginationMeta && paginationMeta.total > 0 && (
+            <div className="lg:hidden bg-white rounded-lg border border-slate-200 p-4">
+              <div className="flex flex-col gap-3">
+                {/* Items info and per-page selector */}
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-slate-700">
+                    {Math.min((currentPage - 1) * itemsPerPage + 1, paginationMeta.total)}-
+                    {Math.min(currentPage * itemsPerPage, paginationMeta.total)} of {paginationMeta.total}
+                  </span>
+                  <select
+                    value={itemsPerPage}
+                    onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                    className="border border-slate-300 rounded-md px-2 py-1 text-sm"
+                  >
+                    <option value={10}>10/page</option>
+                    <option value={20}>20/page</option>
+                    <option value={50}>50/page</option>
+                    <option value={100}>100/page</option>
+                  </select>
+                </div>
+
+                {/* Navigation buttons */}
+                <div className="flex items-center justify-between">
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                    disabled={currentPage === 1}
+                    className={`px-4 py-2 rounded-md text-sm font-medium ${
+                      currentPage === 1
+                        ? 'bg-slate-100 text-slate-400'
+                        : 'bg-primary-600 text-white hover:bg-primary-700'
+                    }`}
+                  >
+                    Previous
+                  </button>
+                  <span className="text-sm font-medium text-slate-700">
+                    Page {currentPage} of {paginationMeta.totalPages}
+                  </span>
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.min(paginationMeta.totalPages, prev + 1))}
+                    disabled={currentPage === paginationMeta.totalPages}
+                    className={`px-4 py-2 rounded-md text-sm font-medium ${
+                      currentPage === paginationMeta.totalPages
+                        ? 'bg-slate-100 text-slate-400'
+                        : 'bg-primary-600 text-white hover:bg-primary-700'
+                    }`}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Desktop Table View */}
+          <div className="hidden lg:block bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-200">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    Order #
+                  </th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    Customer
+                  </th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    Amount
+                  </th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    Payment
+                  </th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    Confirmation
+                  </th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    Date
+                  </th>
+                  <th className="px-6 py-4 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-slate-100">
+                {orders.map((order) => (
+                  <tr key={order.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {getShopifyOrderUrl(order) ? (
+                        <a
+                          href={getShopifyOrderUrl(order)!}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary-600 hover:text-primary-700 font-medium inline-flex items-center gap-1.5 group"
+                          title="Open in Shopify Admin"
+                        >
+                          {order.externalOrderNumber}
+                          <svg className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          </svg>
+                        </a>
+                      ) : (
+                        <Link
+                          href={`/dashboard/orders/${order.id}`}
+                          className="text-primary-600 hover:text-primary-700 font-medium"
+                        >
+                          {order.externalOrderNumber}
+                        </Link>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900">
+                      {order.contact?.name || 'Unknown'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">
+                      {order.currency} {order.totalAmount}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${
+                        order.paymentMethod === 'cod' 
+                          ? 'bg-orange-100 text-orange-700' 
+                          : 'bg-blue-100 text-blue-700'
+                      }`}>
+                        {order.paymentMethod?.toUpperCase()}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span
+                        className={`px-3 py-1 rounded-full text-xs font-semibold cursor-help ${getStatusColor(
+                          order.status
+                        )}`}
+                        title={order.status === 'cancelled' && order.feedbackReason ? `Cancellation Reason: ${getFeedbackLabel(order.feedbackReason)}` : undefined}
+                      >
+                        {order.status === 'cancelled' && order.feedbackReason ? (
+                          <span>{order.status} ℹ️</span>
+                        ) : (
+                          order.status
+                        )}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      {order.confirmationSentAt ? (
+                        <div className="flex items-center text-green-600">
+                          <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          Sent
+                        </div>
+                      ) : (
+                        <span className="text-slate-400">Not sent</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
+                      {new Date(order.createdAt).toLocaleDateString()}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
+                      <button
+                        onClick={() => {
+                          setSelectedOrder(order);
+                          setShowTriggerModal(true);
+                        }}
+                        disabled={!canSendConfirmation(order)}
+                        className={`inline-flex items-center px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                          canSendConfirmation(order)
+                            ? 'bg-primary-600 text-white hover:bg-primary-700'
+                            : 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                        }`}
+                        title={canSendConfirmation(order) ? (order.confirmationSentAt ? 'Resend confirmation' : 'Send confirmation') : getDisabledReason(order)}
+                      >
+                        <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        {order.confirmationSentAt ? 'Resend' : 'Send'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          </div>
+
+          {/* Pagination */}
+          {paginationMeta && paginationMeta.total > 0 && (
+            <div className="bg-white border-t border-slate-200 px-4 py-3 sm:px-6">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                {/* Pagination Info */}
+                <div className="flex items-center gap-4">
+                  <p className="text-sm text-slate-700">
+                    Showing{' '}
+                    <span className="font-medium">
+                      {Math.min((currentPage - 1) * itemsPerPage + 1, paginationMeta.total)}
+                    </span>
+                    {' '}-{' '}
+                    <span className="font-medium">
+                      {Math.min(currentPage * itemsPerPage, paginationMeta.total)}
+                    </span>
+                    {' '}of{' '}
+                    <span className="font-medium">{paginationMeta.total}</span>
+                    {' '}orders
+                  </p>
+
+                  {/* Items per page selector */}
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="itemsPerPage" className="text-sm text-slate-600">
+                      Per page:
+                    </label>
+                    <select
+                      id="itemsPerPage"
+                      value={itemsPerPage}
+                      onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                      className="border border-slate-300 rounded-md px-2 py-1 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                    >
+                      <option value={10}>10</option>
+                      <option value={20}>20</option>
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Page Navigation */}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentPage(1)}
+                    disabled={currentPage === 1}
+                    className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                      currentPage === 1
+                        ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                        : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
+                    }`}
+                    title="First page"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                    </svg>
+                  </button>
+
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                    disabled={currentPage === 1}
+                    className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                      currentPage === 1
+                        ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                        : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    Previous
+                  </button>
+
+                  {/* Page numbers */}
+                  <div className="hidden sm:flex items-center gap-1">
+                    {Array.from({ length: Math.min(5, paginationMeta.totalPages) }, (_, i) => {
+                      let pageNum;
+                      if (paginationMeta.totalPages <= 5) {
+                        pageNum = i + 1;
+                      } else if (currentPage <= 3) {
+                        pageNum = i + 1;
+                      } else if (currentPage >= paginationMeta.totalPages - 2) {
+                        pageNum = paginationMeta.totalPages - 4 + i;
+                      } else {
+                        pageNum = currentPage - 2 + i;
+                      }
+
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => setCurrentPage(pageNum)}
+                          className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                            currentPage === pageNum
+                              ? 'bg-primary-600 text-white'
+                              : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Current page indicator (mobile) */}
+                  <div className="sm:hidden px-3 py-1.5 bg-primary-600 text-white rounded-md text-sm font-medium">
+                    Page {currentPage} of {paginationMeta.totalPages}
+                  </div>
+
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.min(paginationMeta.totalPages, prev + 1))}
+                    disabled={currentPage === paginationMeta.totalPages}
+                    className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                      currentPage === paginationMeta.totalPages
+                        ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                        : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    Next
+                  </button>
+
+                  <button
+                    onClick={() => setCurrentPage(paginationMeta.totalPages)}
+                    disabled={currentPage === paginationMeta.totalPages}
+                    className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                      currentPage === paginationMeta.totalPages
+                        ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                        : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
+                    }`}
+                    title="Last page"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Manual Trigger Modal */}
+      {showTriggerModal && selectedOrder && (
+        <ManualTriggerModal
+          order={selectedOrder}
+          automations={automations}
+          onClose={() => {
+            setShowTriggerModal(false);
+            setSelectedOrder(null);
+          }}
+          onTrigger={handleManualTrigger}
+          triggering={triggering}
+        />
+      )}
+    </div>
+  );
+}
+
+// Manual Trigger Modal Component
+function ManualTriggerModal({ 
+  order, 
+  automations, 
+  onClose, 
+  onTrigger,
+  triggering 
+}: { 
+  order: any;
+  automations: any[];
+  onClose: () => void;
+  onTrigger: (orderId: string, automationId?: string) => void;
+  triggering: boolean;
+}) {
+  const [selectedAutomationId, setSelectedAutomationId] = useState<string>('');
+
+  // Filter automations that match this order
+  const matchingAutomations = automations.filter(auto => {
+    if (!auto.isActive) return false;
+    if (auto.trigger.type !== 'order_created' && auto.trigger.type !== 'order.created') return false;
+    
+    // Check conditions
+    const conditions = auto.trigger.conditions;
+    if (!conditions) return true; // No conditions = matches all
+    
+    if (conditions.paymentMethod && conditions.paymentMethod !== order.paymentMethod) {
+      return false;
+    }
+    
+    return true;
+  });
+
+  const handleSubmit = () => {
+    onTrigger(order.id, selectedAutomationId || undefined);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-lg w-full">
+        <div className="p-6 border-b border-slate-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-slate-900">Send Confirmation</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Order #{order.externalOrderNumber} - {order.contact?.name}
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              className="text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-4">
+          {/* Order Summary */}
+          <div className="bg-slate-50 rounded-lg p-4 space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-600">Amount:</span>
+              <span className="font-semibold text-slate-900">{order.currency} {order.totalAmount}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-600">Payment:</span>
+              <span className="font-medium text-slate-900">{order.paymentMethod?.toUpperCase()}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-600">Status:</span>
+              <span className="font-medium text-slate-900 capitalize">{order.status}</span>
+            </div>
+            {order.confirmationSentAt && (
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-600">Previously sent:</span>
+                <span className="text-green-600 font-medium">
+                  {new Date(order.confirmationSentAt).toLocaleString()}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Automation Selection */}
+          {matchingAutomations.length > 0 ? (
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Select Automation {matchingAutomations.length === 1 && '(Auto-selected)'}
+              </label>
+              <select
+                value={selectedAutomationId}
+                onChange={(e) => setSelectedAutomationId(e.target.value)}
+                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                disabled={matchingAutomations.length === 1}
+              >
+                {matchingAutomations.length === 1 && <option value="">Auto (First matching)</option>}
+                {matchingAutomations.map(auto => (
+                  <option key={auto.id} value={auto.id}>
+                    {auto.name}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-2 text-xs text-slate-500">
+                {matchingAutomations.length} active automation(s) match this order
+              </p>
+            </div>
+          ) : (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+              <div className="flex">
+                <svg className="w-5 h-5 text-amber-600 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <div className="text-sm text-amber-800">
+                  <p className="font-medium">No matching automations</p>
+                  <p className="mt-1">
+                    No active automations match this order's criteria. 
+                    <Link href="/dashboard/automations" className="underline ml-1">
+                      Create one first
+                    </Link>
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* WhatsApp Warning */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <div className="flex">
+              <svg className="w-5 h-5 text-blue-600 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <p className="text-sm text-blue-800">
+                Messages can only be sent within 24 hours of the customer's last interaction.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-6 border-t border-slate-200 flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={triggering || matchingAutomations.length === 0}
+            className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+          >
+            {triggering ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                Sending...
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+                Send Confirmation
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
