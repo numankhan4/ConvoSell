@@ -115,13 +115,19 @@ model ShopifyStore {
   workspaceId   String
   shopDomain    String   @unique // e.g., mystore.myshopify.com
   
-  // Shopify 2026: Client Credentials (OAuth 2.0)
-  clientId      String // From Partners Dashboard
-  clientSecret  String // From Partners Dashboard (encrypted)
+  // Legacy: Client Credentials (24-hour tokens)
+  clientId      String? // From Partners Dashboard
+  clientSecret  String? // From Partners Dashboard (encrypted)
   accessToken   String? // Auto-generated token (expires in 24h)
   tokenExpiresAt DateTime? // When to refresh token
   
-  scopes        String // Granted scopes
+  // NEW: OAuth 2.0 (permanent tokens until uninstall)
+  oauthAccessToken String? @map("oauth_access_token")
+  tokenType        String? @default("client-credentials") @map("token_type") // "client-credentials" | "oauth"
+  oauthInstalledAt DateTime? @map("oauth_installed_at")
+  uninstalledAt    DateTime? @map("uninstalled_at")
+  
+  scopes        String? // Granted scopes
   isActive      Boolean  @default(true)
   installedAt   DateTime @default(now())
   lastSyncAt    DateTime?
@@ -132,6 +138,7 @@ model ShopifyStore {
   orders    Order[]
 
   @@index([workspaceId])
+  @@index([tokenType])
   @@map("shopify_stores")
 }
 

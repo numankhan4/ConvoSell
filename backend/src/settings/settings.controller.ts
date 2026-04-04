@@ -11,13 +11,17 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { SettingsService } from './settings.service';
+import { WhatsAppTokenService } from './whatsapp-token.service';
 import { CreateWhatsAppIntegrationDto, UpdateWhatsAppIntegrationDto } from './dto/whatsapp-integration.dto';
 import { CreateShopifyStoreDto, UpdateShopifyStoreDto } from './dto/shopify-store.dto';
 
 @Controller('settings')
 @UseGuards(JwtAuthGuard)
 export class SettingsController {
-  constructor(private settingsService: SettingsService) {}
+  constructor(
+    private settingsService: SettingsService,
+    private whatsappTokenService: WhatsAppTokenService,
+  ) {}
 
   // ============================================================
   // WHATSAPP INTEGRATION
@@ -54,6 +58,26 @@ export class SettingsController {
     accessToken: string;
   }) {
     return this.settingsService.testWhatsAppConnection(credentials);
+  }
+
+  @Post('whatsapp/:id/health-check')
+  async checkWhatsAppHealth(@Request() req, @Param('id') id: string) {
+    const result = await this.whatsappTokenService.updateHealthStatus(id);
+    return {
+      success: true,
+      message: 'Health check completed',
+      ...result,
+    };
+  }
+
+  @Get('whatsapp/health-summary')
+  async getWhatsAppHealthSummary(@Request() req) {
+    return this.whatsappTokenService.getHealthSummary(req.user.workspaceId);
+  }
+
+  @Post('whatsapp/auto-refresh')
+  async autoRefreshExpiringTokens() {
+    return this.whatsappTokenService.autoRefreshExpiringTokens();
   }
 
   // ============================================================

@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ConflictException, Logger, BadRequestExc
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { WhatsAppTokenService } from './whatsapp-token.service';
 import { CreateWhatsAppIntegrationDto, UpdateWhatsAppIntegrationDto } from './dto/whatsapp-integration.dto';
 import { CreateShopifyStoreDto, UpdateShopifyStoreDto } from './dto/shopify-store.dto';
 import { firstValueFrom } from 'rxjs';
@@ -14,6 +15,7 @@ export class SettingsService {
     private prisma: PrismaService,
     private config: ConfigService,
     private httpService: HttpService,
+    private whatsappTokenService: WhatsAppTokenService,
   ) {}
 
   // ============================================================
@@ -109,10 +111,8 @@ export class SettingsService {
     // Trigger health check asynchronously (don't block response)
     setImmediate(async () => {
       try {
-        const axios = require('axios');
-        await axios.get(`${this.config.get('API_URL')}/api/health/workspace`, {
-          headers: { 'x-workspace-id': workspaceId },
-        });
+        await this.whatsappTokenService.updateHealthStatus(integration.id);
+        this.logger.log(`Health check triggered for integration ${integration.id}`);
       } catch (error) {
         this.logger.error('Failed to trigger health check', error);
       }
@@ -204,10 +204,8 @@ export class SettingsService {
     if (dto.accessToken) {
       setImmediate(async () => {
         try {
-          const axios = require('axios');
-          await axios.get(`${this.config.get('API_URL')}/api/health/workspace`, {
-            headers: { 'x-workspace-id': workspaceId },
-          });
+          await this.whatsappTokenService.updateHealthStatus(integrationId);
+          this.logger.log(`Health check triggered for integration ${integrationId}`);
         } catch (error) {
           this.logger.error('Failed to trigger health check', error);
         }
@@ -285,23 +283,37 @@ export class SettingsService {
 
   /**
    * Get valid access token (refresh if expired)
+   * Supports both OAuth (permanent tokens) and Client Credentials (24-hour tokens)
    */
   async getShopifyAccessToken(workspaceId: string): Promise<string> {
     const store = await this.prisma.shopifyStore.findFirst({
-      where: { workspaceId },
+      where: { workspaceId, isActive: true },
     });
 
     if (!store) {
       throw new NotFoundException('Shopify store not found');
     }
 
+    // PRIORITY 1: OAuth token (permanent, no refresh needed)
+    if (store.tokenType === 'oauth' && store.oauthAccessToken && !store.uninstalledAt) {
+      this.logger.log(`Using OAuth token for workspace ${workspaceId}`);
+      return store.oauthAccessToken;
+    }
+
+    // PRIORITY 2: Client Credentials (legacy, 24-hour tokens)
     // Check if token needs refresh (expired, missing, or expiring in < 1 hour)
     const needsRefresh = !store.accessToken || 
                          !store.tokenExpiresAt || 
                          new Date(store.tokenExpiresAt).getTime() < Date.now() + 3600000;
 
     if (needsRefresh) {
-      this.logger.log(`Refreshing Shopify token for workspace ${workspaceId}`);
+      this.logger.log(`Refreshing Client Credentials token for workspace ${workspaceId}`);
+      
+      if (!store.clientId || !store.clientSecret) {
+        throw new BadRequestException(
+          'Shopify credentials missing. Please reconnect your store using OAuth.',
+        );
+      }
       
       const { accessToken, expiresAt } = await this.exchangeShopifyCredentials(
         store.shopDomain,
@@ -326,11 +338,13 @@ export class SettingsService {
 
   async getShopifyStore(workspaceId: string) {
     const store = await this.prisma.shopifyStore.findFirst({
-      where: { workspaceId },
+      where: { workspaceId, isActive: true },
       select: {
         id: true,
         shopDomain: true,
         clientId: true,
+        tokenType: true,
+        oauthInstalledAt: true,
         scopes: true,
         isActive: true,
         installedAt: true,
@@ -341,10 +355,24 @@ export class SettingsService {
         // Exclude sensitive fields
         clientSecret: false,
         accessToken: false,
+        oauthAccessToken: false,
       },
     });
 
     return store;
+  }
+
+  /**
+   * Get active Shopify store ID for workspace
+   * Used for filtering orders/contacts by current store
+   */
+  async getActiveShopifyStoreId(workspaceId: string): Promise<string | null> {
+    const store = await this.prisma.shopifyStore.findFirst({
+      where: { workspaceId, isActive: true },
+      select: { id: true },
+    });
+
+    return store?.id || null;
   }
 
   async createShopifyStore(workspaceId: string, dto: CreateShopifyStoreDto) {
@@ -540,10 +568,17 @@ export class SettingsService {
     // If credentials changed, re-exchange for new token
     let tokenData: { accessToken?: string; expiresAt?: Date } = {};
     if (dto.clientId || dto.clientSecret) {
+      const clientId = dto.clientId || store.clientId;
+      const clientSecret = dto.clientSecret || store.clientSecret;
+      
+      if (!clientId || !clientSecret) {
+        throw new BadRequestException('Client ID and Secret are required');
+      }
+      
       const { accessToken, expiresAt } = await this.exchangeShopifyCredentials(
         dto.shopDomain || store.shopDomain,
-        dto.clientId || store.clientId,
-        dto.clientSecret || store.clientSecret,
+        clientId,
+        clientSecret,
       );
       tokenData = { accessToken, expiresAt };
     }

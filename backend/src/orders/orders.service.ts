@@ -1,12 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { SettingsService } from '../settings/settings.service';
 
 @Injectable()
 export class OrdersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private settingsService: SettingsService,
+  ) {}
 
   /**
-   * Get orders for workspace
+   * Get orders for workspace (filtered by active Shopify store)
    */
   async getOrders(workspaceId: string, params: {
     status?: string;
@@ -27,7 +31,16 @@ export class OrdersService {
       search: params.search,
     });
 
-    const where: any = { workspaceId };
+    // Get active Shopify store ID for filtering
+    const activeStoreId = await this.settingsService.getActiveShopifyStoreId(workspaceId);
+    
+    console.log('🏪 Active Shopify Store ID:', activeStoreId);
+
+    const where: any = { 
+      workspaceId,
+      // Filter by active store if one exists
+      ...(activeStoreId && { shopifyStoreId: activeStoreId }),
+    };
     
     // Status filter
     if (params.status) {
@@ -142,8 +155,15 @@ export class OrdersService {
    * Get order statistics
    */
   async getStatistics(workspaceId: string, statusFilter?: string) {
-    // Base where clause
-    const baseWhere: any = { workspaceId };
+    // Get active Shopify store ID for filtering
+    const activeStoreId = await this.settingsService.getActiveShopifyStoreId(workspaceId);
+    
+    // Base where clause - filter by active store
+    const baseWhere: any = { 
+      workspaceId,
+      ...(activeStoreId && { shopifyStoreId: activeStoreId }),
+    };
+    
     if (statusFilter && statusFilter !== 'all') {
       baseWhere.status = statusFilter;
     }

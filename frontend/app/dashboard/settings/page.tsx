@@ -1,24 +1,22 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/lib/store/auth';
 import { settingsApi } from '@/lib/api/settings';
+import { getOAuthInstallUrl, getOAuthStatus, disconnectOAuth } from '@/lib/api/shopify-oauth';
 import toast from 'react-hot-toast';
-import ConnectionStatusCard from '@/components/settings/ConnectionStatusCard';
-import ConnectionTester from '@/components/settings/ConnectionTester';
-import InlineFieldValidator, { validators } from '@/components/settings/InlineFieldValidator';
 
 interface WhatsAppIntegration {
   id: string;
   phoneNumberId: string;
   phoneNumber: string;
   businessAccountId: string;
+  isActive: boolean;
   tokenType?: string;
   tokenExpiresAt?: string;
-  healthStatus?: 'healthy' | 'warning' | 'error' | 'unknown';
+  healthStatus?: string;
   healthError?: string;
   lastHealthCheck?: string;
-  isActive: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -28,31 +26,19 @@ interface ShopifyStore {
   shopDomain: string;
   clientId: string;
   scopes: string;
-  tokenExpiresAt?: string;
   isActive: boolean;
   installedAt: string;
   lastSyncAt: string | null;
+  tokenExpiresAt: string | null;
+  tokenType?: string;
+  oauthInstalledAt?: string;
   createdAt: string;
   updatedAt: string;
-}
-
-interface WebhookUrls {
-  whatsapp: {
-    callbackUrl: string;
-    verifyToken: string;
-    setupInstructions: string[];
-  };
-  shopify: {
-    callbackUrls: any;
-    setupInstructions: string[];
-    note: string;
-  };
 }
 
 export default function SettingsPage() {
   const { token } = useAuthStore();
   const [activeTab, setActiveTab] = useState<'whatsapp' | 'shopify'>('whatsapp');
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   // WhatsApp state
   const [whatsappIntegration, setWhatsappIntegration] = useState<WhatsAppIntegration | null>(null);
@@ -61,10 +47,13 @@ export default function SettingsPage() {
     phoneNumber: '',
     businessAccountId: '',
     accessToken: '',
+    tokenType: 'system-user',
   });
   const [isWhatsappLoading, setIsWhatsappLoading] = useState(false);
+  const [isHealthChecking, setIsHealthChecking] = useState(false);
   const [showTokenHelp, setShowTokenHelp] = useState(false);
-  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
+  const [showSetupHelp, setShowSetupHelp] = useState(false);
+  const [showWebhookConfig, setShowWebhookConfig] = useState(false);
 
   // Shopify state
   const [shopifyStore, setShopifyStore] = useState<ShopifyStore | null>(null);
@@ -75,15 +64,17 @@ export default function SettingsPage() {
     scopes: 'read_orders,write_orders,read_customers,write_customers',
   });
   const [isShopifyLoading, setIsShopifyLoading] = useState(false);
+  
+  // OAuth state
+  const [isConnectingOAuth, setIsConnectingOAuth] = useState(false);
+  const [oauthShopDomain, setOauthShopDomain] = useState('');
+  const [showLegacyForm, setShowLegacyForm] = useState(false);
 
-  // Webhook URLs state
-  const [webhookUrls, setWebhookUrls] = useState<WebhookUrls | null>(null);
-
-  // Load integrations and webhook URLs on mount
+  // Load WhatsApp integration on mount
   useEffect(() => {
     loadWhatsAppIntegration();
     loadShopifyStore();
-    loadWebhookUrls();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Populate WhatsApp form when integration is loaded
@@ -94,10 +85,59 @@ export default function SettingsPage() {
         phoneNumber: whatsappIntegration.phoneNumber,
         businessAccountId: whatsappIntegration.businessAccountId,
         accessToken: '', // Don't show existing token for security
+        tokenType: whatsappIntegration.tokenType || 'system-user',
       });
-      setHasUnsavedChanges(false);
     }
   }, [whatsappIntegration]);
+
+  // Health check function
+  const handleHealthCheck = async () => {
+    if (!token || !whatsappIntegration) {
+      toast.error('No WhatsApp integration found');
+      return;
+    }
+
+    setIsHealthChecking(true);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+      const url = `${apiUrl}/api/settings/whatsapp/${whatsappIntegration.id}/health-check`;
+      
+      console.log('Health check URL:', url);
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Health check HTTP error:', response.status, errorText);
+        throw new Error(`Health check failed: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      console.log('Health check response:', data);
+      
+      // Reload integration to get updated health status
+      await loadWhatsAppIntegration();
+      
+      if (data.healthStatus === 'healthy') {
+        toast.success('✅ Token is healthy and valid!');
+      } else if (data.healthStatus === 'warning') {
+        toast('⚠️ Token is valid but expiring soon', { icon: '⚠️' });
+      } else {
+        toast.error('❌ Token validation failed: ' + (data.healthError || 'Unknown error'));
+      }
+    } catch (error: any) {
+      toast.error('Failed to check token health: ' + error.message);
+      console.error('Health check error:', error);
+    } finally {
+      setIsHealthChecking(false);
+    }
+  };
 
   // Populate Shopify form when store is loaded
   useEffect(() => {
@@ -108,42 +148,8 @@ export default function SettingsPage() {
         clientSecret: '', // Don't show existing secret for security
         scopes: shopifyStore.scopes,
       });
-      setHasUnsavedChanges(false);
     }
   }, [shopifyStore]);
-
-  // Warn on unsaved changes
-  useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (hasUnsavedChanges) {
-        e.preventDefault();
-        e.returnValue = '';
-      }
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [hasUnsavedChanges]);
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl+S or Cmd+S to save
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault();
-        if (activeTab === 'whatsapp') {
-          handleWhatsAppSubmit(new Event('submit') as any);
-        } else {
-          handleShopifySubmit(new Event('submit') as any);
-        }
-      }
-      // Esc to close help
-      if (e.key === 'Escape') {
-        setShowTokenHelp(false);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeTab, whatsappForm, shopifyForm]);
 
   const loadWhatsAppIntegration = async () => {
     if (!token) return;
@@ -169,16 +175,6 @@ export default function SettingsPage() {
     }
   };
 
-  const loadWebhookUrls = async () => {
-    if (!token) return;
-    try {
-      const data = await settingsApi.getWebhookUrls(token);
-      setWebhookUrls(data);
-    } catch (error: any) {
-      console.error('Failed to load webhook URLs:', error);
-    }
-  };
-
   const handleWhatsAppSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token) return;
@@ -194,14 +190,22 @@ export default function SettingsPage() {
           whatsappForm,
         );
         setWhatsappIntegration(updated);
-        toast.success('✓ WhatsApp integration updated successfully!');
+        toast.success('WhatsApp integration updated successfully! ✓');
       } else {
         // Create new
         const created = await settingsApi.createWhatsAppIntegration(token, whatsappForm);
         setWhatsappIntegration(created);
-        toast.success('🎉 WhatsApp integration created successfully!');
+        toast.success('WhatsApp integration created successfully! 🎉');
+        
+        // Reset form only after creation
+        setWhatsappForm({
+          phoneNumberId: '',
+          phoneNumber: '',
+          businessAccountId: '',
+          accessToken: '',
+          tokenType: 'system-user',
+        });
       }
-      setHasUnsavedChanges(false);
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Failed to save WhatsApp integration');
     } finally {
@@ -220,14 +224,21 @@ export default function SettingsPage() {
         // Update existing
         const updated = await settingsApi.updateShopifyStore(token, shopifyStore.id, shopifyForm);
         setShopifyStore(updated);
-        toast.success('✓ Shopify store updated successfully!');
+        toast.success('Shopify store updated successfully! ✓');
       } else {
         // Create new
         const created = await settingsApi.createShopifyStore(token, shopifyForm);
         setShopifyStore(created);
-        toast.success('🎉 Shopify store connected successfully!');
+        toast.success('Shopify store connected successfully! 🎉');
+        
+        // Reset form only after creation
+        setShopifyForm({
+          shopDomain: '',
+          clientId: '',
+          clientSecret: '',
+          scopes: 'read_orders,write_orders,read_customers,write_customers',
+        });
       }
-      setHasUnsavedChanges(false);
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Failed to save Shopify store');
     } finally {
@@ -235,7 +246,7 @@ export default function SettingsPage() {
     }
   };
 
-  const handleDeleteWhatsApp = () => {
+  const handleDeleteWhatsApp = async () => {
     if (!token || !whatsappIntegration) return;
     
     toast((t) => (
@@ -251,12 +262,6 @@ export default function SettingsPage() {
               try {
                 await settingsApi.deleteWhatsAppIntegration(token, whatsappIntegration.id);
                 setWhatsappIntegration(null);
-                setWhatsappForm({
-                  phoneNumberId: '',
-                  phoneNumber: '',
-                  businessAccountId: '',
-                  accessToken: '',
-                });
                 toast.success('WhatsApp integration deleted successfully!');
               } catch (error: any) {
                 toast.error(error.response?.data?.message || 'Failed to delete integration');
@@ -277,7 +282,7 @@ export default function SettingsPage() {
     ), { duration: Infinity });
   };
 
-  const handleDeleteShopify = () => {
+  const handleDeleteShopify = async () => {
     if (!token || !shopifyStore) return;
     
     toast((t) => (
@@ -293,12 +298,6 @@ export default function SettingsPage() {
               try {
                 await settingsApi.deleteShopifyStore(token, shopifyStore.id);
                 setShopifyStore(null);
-                setShopifyForm({
-                  shopDomain: '',
-                  clientId: '',
-                  clientSecret: '',
-                  scopes: 'read_orders,write_orders,read_customers,write_customers',
-                });
                 toast.success('Shopify store deleted successfully!');
               } catch (error: any) {
                 toast.error(error.response?.data?.message || 'Failed to delete store');
@@ -319,24 +318,99 @@ export default function SettingsPage() {
     ), { duration: Infinity });
   };
 
-  const handleTestWhatsApp = async (credentials: any) => {
-    if (!token) throw new Error('Not authenticated');
-    return await settingsApi.testWhatsAppConnection(token, credentials);
-  };
+  const handleRegisterWebhooks = async () => {
+    if (!token) return;
 
-  const handleTestShopify = async (credentials: any) => {
-    if (!token) throw new Error('Not authenticated');
-    return await settingsApi.testShopifyConnection(token, credentials);
-  };
-
-  const copyToClipboard = async (text: string, label: string) => {
     try {
-      await navigator.clipboard.writeText(text);
-      toast.success(`✓ ${label} copied to clipboard!`);
-    } catch (error) {
-      toast.error('Failed to copy to clipboard');
+      const results = await settingsApi.registerShopifyWebhooks(token);
+      const successCount = results.filter((r: any) => r.success).length;
+      const failCount = results.filter((r: any) => !r.success).length;
+      
+      if (failCount === 0) {
+        toast.success(`✅ ${successCount} webhooks registered successfully!`);
+      } else {
+        toast.error(`⚠️ ${successCount} succeeded, ${failCount} failed. Check console for details.`);
+      }
+      console.log('Webhook registration results:', results);
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to register webhooks');
     }
   };
+
+  // OAuth handlers
+  const handleOAuthConnect = async () => {
+    if (!token || !oauthShopDomain.trim()) {
+      toast.error('Please enter a shop domain');
+      return;
+    }
+
+    try {
+      setIsConnectingOAuth(true);
+      const { installUrl } = await getOAuthInstallUrl(oauthShopDomain.trim());
+      
+      // Redirect to Shopify OAuth screen
+      window.location.href = installUrl;
+    } catch (error: any) {
+      setIsConnectingOAuth(false);
+      toast.error(error.response?.data?.message || 'Failed to start OAuth flow');
+    }
+  };
+
+  const handleOAuthDisconnect = async () => {
+    if (!token) return;
+
+    toast((t) => (
+      <div className="space-y-3">
+        <div>
+          <div className="font-semibold text-slate-900">Disconnect Shopify OAuth?</div>
+          <div className="text-sm text-slate-600 mt-1">You can reconnect anytime.</div>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={async () => {
+              toast.dismiss(t.id);
+              try {
+                await disconnectOAuth();
+                await loadShopifyStore(); // Reload to show disconnected state
+                toast.success('Shopify disconnected successfully!');
+              } catch (error: any) {
+                toast.error(error.response?.data?.message || 'Failed to disconnect');
+              }
+            }}
+            className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors"
+          >
+            Disconnect
+          </button>
+          <button
+            onClick={() => toast.dismiss(t.id)}
+            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-medium transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    ), { duration: Infinity });
+  };
+
+  // Check for OAuth callback on mount
+  useEffect(() => {
+    const checkOAuthCallback = async () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const shopifyParam = urlParams.get('shopify');
+      const shopParam = urlParams.get('shop');
+
+      if (shopifyParam === 'connected' && shopParam) {
+        toast.success(`✅ ${shopParam} connected successfully!`);
+        await loadShopifyStore(); // Reload shop data
+        
+        // Clean URL
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    };
+
+    checkOAuthCallback();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="space-y-6 sm:space-y-8">
@@ -344,14 +418,6 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Settings</h1>
         <p className="text-sm sm:text-base text-slate-600 mt-2">Manage your integrations and configurations</p>
-        {hasUnsavedChanges && (
-          <div className="mt-2 text-sm text-amber-600 flex items-center gap-1">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-            You have unsaved changes (press Ctrl+S to save)
-          </div>
-        )}
       </div>
 
       {/* Tabs */}
@@ -385,7 +451,7 @@ export default function SettingsPage() {
           >
             <div className="flex items-center justify-center space-x-1 sm:space-x-2">
               <svg className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M15.337 2.487c-.043-.153-.119-.232-.255-.232h-2.571c-.187 0-.306.077-.357.255l-.476 1.632h3.735l-.076-.272zM12.678 5.142H9.965l1.989 5.954 1.734-5.954z"/>
+                <path d="M16.373 3.07c-.059-.104-.213-.149-.304-.134l-1.49.244-.006-.006c-.314-.328-.738-.479-1.084-.479-.045 0-.088.003-.129.009-.021-.028-.044-.056-.067-.084-.487-.594-1.201-.861-1.937-.726-1.365.252-2.729 1.889-3.429 3.672-.487.246-1.205.609-1.365.691C5.4 6.515 5.37 6.546 5.326 6.725c-.041.135-1.092 3.366-1.092 3.366L12 11.576V3.099c-.045.003-.092.015-.134.027-.509.15-.838.51-.938.9-.238.094-.482.192-.727.292-.745-2.171-.998-3.157-1-.316-.375-.556-.827-.693-1.301-.04-.145-.062-.296-.062-.45 0-.081.003-.164.009-.248zm-.806 3.548l-.924.282c0-.002.001-.003.001-.003.009 0 .267-.842.453-1.34.178-.48.39-.918.616-1.292.229.21.398.488.476.734.15.476.03 1.117-.524 1.569m-.638-3.093c0 .061-.007.122-.012.183-.171.247-.376.631-.568 1.128l-.66-2.203c.195-.046.377-.046.528-.023.365.056.652.362.712.715zM14 7.366l-1.21.372c.233-.684.582-1.365 1.005-1.883.127-.156.268-.309.418-.452l-.213.963v1zm-1.698-2.81c.199-.006.372.017.535.064-.144.13-.285.279-.424.441-.549.645-1.004 1.553-1.309 2.558l-1.054.323c.39-1.414 1.294-3.323 2.252-3.386z"/>
               </svg>
               <span>Shopify Store</span>
             </div>
@@ -395,291 +461,847 @@ export default function SettingsPage() {
           </button>
         </nav>
 
-        {/* WhatsApp Integration Tab - PART 1 in next message */}
+        {/* WhatsApp Integration Tab */}
         {activeTab === 'whatsapp' && (
-          <div className="p-4 sm:p-6 space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg sm:text-xl font-semibold text-slate-900 flex items-center gap-2">
-                  📱 WhatsApp Business API
-                </h2>
-                <p className="text-sm text-slate-600 mt-1">
-                  Connect your Meta WhatsApp Cloud API to send and receive messages
-                </p>
-              </div>
-              {webhookUrls && (
-                <a
-                  href="https://www.youtube.com/results?search_query=whatsapp+cloud+api+setup+2026"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="hidden sm:flex items-center gap-1 px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium rounded-lg transition-colors"
-                >
-                  ▶️ Video Tutorial
-                </a>
-              )}
+          <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+            <div>
+              <h2 className="text-lg sm:text-xl font-semibold text-slate-900 flex items-center">
+                <svg className="w-5 h-5 sm:w-6 sm:h-6 mr-2 text-primary-500 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.890-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
+                </svg>
+                WhatsApp Business API
+              </h2>
+              <p className="text-sm text-slate-600 mt-1">
+                Connect your Meta WhatsApp Cloud API to send and receive messages from customers
+              </p>
             </div>
 
-            {/* Connection Status Card */}
-            {whatsappIntegration && (
-              <ConnectionStatusCard
-                type="whatsapp"
-                status="connected"
-                metrics={{
-                  ...whatsappIntegration,
-                  lastSync: whatsappIntegration.lastHealthCheck,
-                }}
-                onDisconnect={handleDeleteWhatsApp}
-                onTest={() => {}}
-              />
-            )}
-
-            {/* Configuration Form */}
-            <form onSubmit={handleWhatsAppSubmit} className="space-y-5">
-              <InlineFieldValidator
-                label="Phone Number ID"
-                value={whatsappForm.phoneNumberId}
-                onChange={(value) => {
-                  setWhatsappForm({ ...whatsappForm, phoneNumberId: value });
-                  setHasUnsavedChanges(true);
-                }}
-                placeholder="123456789012345"
-                required
-                validator={validators.isNumeric}
-                helpText="Found in: Use cases (pencil icon) → Customize → API Setup panel"
-                exampleText="Example: 123456789012345"
-              />
-
-              <InlineFieldValidator
-                label="Phone Number"
-                value={whatsappForm.phoneNumber}
-                onChange={(value) => {
-                  setWhatsappForm({ ...whatsappForm, phoneNumber: value });
-                  setHasUnsavedChanges(true);
-                }}
-                placeholder="+923001234567"
-                type="tel"
-                required
-                validator={validators.e164Phone}
-                exampleText="Pakistan: +92, US: +1, UK: +44, India: +91"
-              />
-
-              <InlineFieldValidator
-                label="Business Account ID"
-                value={whatsappForm.businessAccountId}
-                onChange={(value) => {
-                  setWhatsappForm({ ...whatsappForm, businessAccountId: value });
-                  setHasUnsavedChanges(true);
-                }}
-                placeholder="123456789012345"
-                required
-                validator={validators.isNumeric}
-                helpText="Found in Meta Business Settings → WhatsApp Accounts"
-                exampleText="Example: 123456789012345"
-              />
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center justify-between">
-                  <span>
-                    Access Token <span className="text-red-500">*</span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setShowTokenHelp(!showTokenHelp)}
-                    className="text-primary-600 hover:text-primary-700 text-xs font-normal flex items-center gap-1"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    How to generate?
-                  </button>
-                </label>
-                <input
-                  type="password"
-                  value={whatsappForm.accessToken}
-                  onChange={(e) => {
-                    setWhatsappForm({ ...whatsappForm, accessToken: e.target.value });
-                    setHasUnsavedChanges(true);
-                  }}
-                  placeholder="EAAG..."
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  required
-                />
-                
-                {/* Help Section - Collapsed by Default */}
-                {showTokenHelp && (
-                  <div className="mt-3 bg-gradient-to-br from-primary-50 to-blue-50 border border-primary-200 rounded-lg p-4 shadow-sm">
-                    <div className="flex items-start gap-2 mb-3">
-                      <svg className="w-5 h-5 text-primary-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          {/* Current Integration Status */}
+          {whatsappIntegration && (
+            <div className="bg-gradient-to-r from-primary-50 to-primary-100 border-2 border-primary-200 rounded-xl p-6 shadow-md">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <div className="flex items-center space-x-2 mb-3">
+                    <div className="w-10 h-10 bg-primary-500 rounded-full flex items-center justify-center shadow-sm">
+                      <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
-                      <div className="flex-1">
-                        <h4 className="font-semibold text-primary-900 text-sm">How to Generate WhatsApp Access Token</h4>
-                        <p className="text-xs text-primary-700 mt-1">Two options: System User Token (recommended) or Temporary Token (testing only)</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setShowTokenHelp(false)}
-                        className="text-primary-600 hover:text-primary-800"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
                     </div>
-
-                    <div className="space-y-3">
-                      {/* System User Token (Recommended) */}
-                      <details className="bg-white rounded-lg p-3 border border-green-200" open>
-                        <summary className="font-semibold text-sm cursor-pointer flex items-center gap-2">
-                          <span className="bg-green-500 text-white text-xs px-2 py-0.5 rounded">RECOMMENDED</span>
-                          <span>System User Token (Never Expires)</span>
-                        </summary>
-                        <ol className="text-xs text-gray-700 space-y-2 list-decimal list-inside ml-1 mt-3">
-                          <li>
-                            Go to{' '}
-                            <a
-                              href="https://business.facebook.com/settings/system-users"
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-primary-600 hover:underline font-medium"
-                            >
-                              Meta Business Settings → System Users
-                            </a>
-                          </li>
-                          <li>Click "Add" to create a System User</li>
-                          <li>Click on the System User → "Generate Token"</li>
-                          <li>Select your WhatsApp App and check these permissions:
-                            <ul className="ml-6 mt-1 space-y-0.5 list-disc">
-                              <li><code className="bg-gray-100 px-1">whatsapp_business_messaging</code></li>
-                              <li><code className="bg-gray-100 px-1">whatsapp_business_management</code></li>
-                            </ul>
-                          </li>
-                          <li className="font-semibold text-green-700">Set expiration to "Never" ✨</li>
-                          <li>Copy the token and paste above</li>
-                        </ol>
-                      </details>
-
-                      {/* Temporary Token */}
-                      <details className="bg-white rounded-lg p-3 border border-amber-200">
-                        <summary className="font-semibold text-sm cursor-pointer flex items-center gap-2">
-                          <span className="bg-amber-500 text-white text-xs px-2 py-0.5 rounded">TESTING ONLY</span>
-                          <span>Temporary Token (24 Hours)</span>
-                        </summary>
-                        <ol className="text-xs text-gray-700 space-y-2 list-decimal list-inside ml-1 mt-3">
-                          <li>
-                            Go to{' '}
-                            <a
-                              href="https://developers.facebook.com/apps"
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-primary-600 hover:underline font-medium"
-                            >
-                              Meta App Dashboard
-                            </a>
-                          </li>
-                          <li>Select your WhatsApp App → WhatsApp → API Setup</li>
-                          <li>Copy the "Temporary access token"</li>
-                          <li className="text-amber-800 font-medium">⚠️ Expires in 24 hours!</li>
-                        </ol>
-                      </details>
+                    <div>
+                      <h3 className="font-bold text-primary-900 text-lg">WhatsApp Connected</h3>
+                      <p className="text-xs text-primary-700">Integration is active and ready</p>
                     </div>
                   </div>
-                )}
-              </div>
-
-              {/* Webhook Info with Copy Button */}
-              {webhookUrls && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <div className="flex items-start gap-2">
-                    <svg className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-blue-900 mb-2">Webhook Configuration</p>
-                      <div className="space-y-2">
-                        <div>
-                          <label className="text-xs font-semibold text-blue-800">Callback URL:</label>
-                          <div className="flex gap-2 mt-1">
-                            <input
-                              type="text"
-                              readOnly
-                              value={webhookUrls.whatsapp.callbackUrl}
-                              className="flex-1 text-xs bg-white px-2 py-1.5 rounded border border-blue-300 font-mono"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => copyToClipboard(webhookUrls.whatsapp.callbackUrl, 'Webhook URL')}
-                              className="px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white text-xs rounded transition-colors"
-                            >
-                              📋 Copy
-                            </button>
-                          </div>
-                        </div>
-                        <div>
-                          <label className="text-xs font-semibold text-blue-800">Verify Token:</label>
-                          <div className="flex gap-2 mt-1">
-                            <input
-                              type="text"
-                              readOnly
-                              value={webhookUrls.whatsapp.verifyToken}
-                              className="flex-1 text-xs bg-white px-2 py-1.5 rounded border border-blue-300 font-mono"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => copyToClipboard(webhookUrls.whatsapp.verifyToken, 'Verify Token')}
-                              className="px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white text-xs rounded transition-colors"
-                            >
-                              📋 Copy
-                            </button>
-                          </div>
-                        </div>
-                      </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="bg-white rounded-lg p-3 border border-primary-200 shadow-sm">
+                      <p className="text-xs text-primary-600 font-medium mb-1">Phone Number</p>
+                      <p className="text-sm font-mono font-semibold text-primary-900">{whatsappIntegration.phoneNumber}</p>
+                    </div>
+                    <div className="bg-white rounded-lg p-3 border border-primary-200 shadow-sm">
+                      <p className="text-xs text-primary-600 font-medium mb-1">Phone Number ID</p>
+                      <p className="text-xs font-mono font-semibold text-primary-900">{whatsappIntegration.phoneNumberId}</p>
+                    </div>
+                    <div className="bg-white rounded-lg p-3 border border-primary-200 shadow-sm">
+                      <p className="text-xs text-primary-600 font-medium mb-1">Business Account ID</p>
+                      <p className="text-xs font-mono font-semibold text-primary-900">{whatsappIntegration.businessAccountId}</p>
+                    </div>
+                    <div className="bg-white rounded-lg p-3 border border-primary-200 shadow-sm">
+                      <p className="text-xs text-primary-600 font-medium mb-1">Token Type</p>
+                      <p className="text-sm font-semibold text-primary-900 capitalize">{whatsappIntegration.tokenType || 'temporary'}</p>
                     </div>
                   </div>
                 </div>
-              )}
+              </div>
 
-              {/* Connection Tester */}
-              <ConnectionTester
-                type="whatsapp"
-                credentials={whatsappForm}
-                onTest={handleTestWhatsApp}
-                disabled={!whatsappForm.phoneNumberId || !whatsappForm.businessAccountId || !whatsappForm.accessToken}
-              />
+              {/* Health Status */}
+              <div className="bg-white rounded-lg p-4 border-2 border-primary-200 mb-3">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
+                    <svg className="w-5 h-5 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0121 12c0 6.627-5.373 12-12 12S-3 18.627-3 12 2.373 0 9 0c2.913 0 5.562 1.078 7.618 2.984z" />
+                    </svg>
+                    Token Health Status
+                  </h4>
+                  <button
+                    onClick={handleHealthCheck}
+                    disabled={isHealthChecking}
+                    className="px-3 py-1.5 bg-primary-500 hover:bg-primary-600 text-white text-xs font-semibold rounded-lg transition-all disabled:bg-gray-400 flex items-center gap-1.5 shadow-sm hover:shadow-md"
+                  >
+                    {isHealthChecking ? (
+                      <>
+                        <svg className="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Checking...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        Check Now
+                      </>
+                    )}
+                  </button>
+                </div>
 
-              {/* Submit Button */}
-              <div className="pt-2">
-                <button
-                  type="submit"
-                  disabled={isWhatsappLoading}
-                  className="w-full h-14 bg-primary-500 hover:bg-primary-600 active:bg-primary-700 text-white px-6 rounded-xl font-semibold transition-all disabled:bg-slate-400 disabled:cursor-not-allowed flex items-center justify-center shadow-sm hover:shadow-md"
-                >
-                  {isWhatsappLoading ? (
-                    <>
-                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      Saving...
-                    </>
-                  ) : whatsappIntegration ? (
-                    '💾 Update WhatsApp Configuration'
-                  ) : (
-                    '🚀 Connect WhatsApp Business'
+                <div className="flex items-center gap-3">
+                  {/* Health Status Indicator */}
+                  {whatsappIntegration.healthStatus === 'healthy' && (
+                    <div className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg flex-1">
+                      <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                      <div>
+                        <p className="text-sm font-semibold text-green-900">Healthy</p>
+                        <p className="text-xs text-green-700">Token is valid and active</p>
+                      </div>
+                    </div>
                   )}
+                  {whatsappIntegration.healthStatus === 'warning' && (
+                    <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg flex-1">
+                      <div className="w-3 h-3 bg-amber-500 rounded-full animate-pulse"></div>
+                      <div>
+                        <p className="text-sm font-semibold text-amber-900">Warning</p>
+                        <p className="text-xs text-amber-700">Token expiring soon</p>
+                      </div>
+                    </div>
+                  )}
+                  {whatsappIntegration.healthStatus === 'error' && (
+                    <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg flex-1">
+                      <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                      <div>
+                        <p className="text-sm font-semibold text-red-900">Error</p>
+                        <p className="text-xs text-red-700">{whatsappIntegration.healthError || 'Token validation failed'}</p>
+                      </div>
+                    </div>
+                  )}
+                  {!whatsappIntegration.healthStatus && (
+                    <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg flex-1">
+                      <div className="w-3 h-3 bg-gray-400 rounded-full"></div>
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">Not Checked</p>
+                        <p className="text-xs text-gray-600">Click "Check Now" to validate token</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {whatsappIntegration.lastHealthCheck && (
+                  <p className="text-xs text-gray-500 mt-2">
+                    Last checked: {new Date(whatsappIntegration.lastHealthCheck).toLocaleString()}
+                  </p>
+                )}
+
+                {whatsappIntegration.tokenExpiresAt && (
+                  <p className="text-xs text-gray-600 mt-1">
+                    Token expires: {new Date(whatsappIntegration.tokenExpiresAt).toLocaleDateString()}
+                  </p>
+                )}
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-2">
+                <button
+                  onClick={handleDeleteWhatsApp}
+                  className="px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg font-medium transition-colors border border-red-200 shadow-sm hover:shadow-md"
+                >
+                  <span className="flex items-center gap-2">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Disconnect WhatsApp
+                  </span>
                 </button>
               </div>
-            </form>
-          </div>
-        )}
+            </div>
+          )}
 
-        {/* Shopify Integration Tab - Simplified version (similar structure) */}
+          {/* Configuration Form */}
+          <form onSubmit={handleWhatsAppSubmit} className="space-y-5">
+            <div>
+              <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
+                Phone Number ID *
+              </label>
+              <input
+                type="text"
+                value={whatsappForm.phoneNumberId}
+                onChange={(e) => setWhatsappForm({ ...whatsappForm, phoneNumberId: e.target.value })}
+                placeholder="123456789012345"
+                className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                required
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Found in: Use cases (pencil icon) → Customize → API Setup panel
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
+                Phone Number *
+              </label>
+              <input
+                type="text"
+                value={whatsappForm.phoneNumber}
+                onChange={(e) => setWhatsappForm({ ...whatsappForm, phoneNumber: e.target.value })}
+                placeholder="+923001234567"
+                className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                required
+              />
+              <p className="text-xs text-gray-500 mt-1">E.164 format (e.g., +92 for Pakistan)</p>
+            </div>
+
+            <div>
+              <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
+                Business Account ID *
+              </label>
+              <input
+                type="text"
+                value={whatsappForm.businessAccountId}
+                onChange={(e) => setWhatsappForm({ ...whatsappForm, businessAccountId: e.target.value })}
+                placeholder="123456789012345"
+                className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2 flex items-center justify-between">
+                <span>Access Token *</span>
+                <button
+                  type="button"
+                  onClick={() => setShowTokenHelp(!showTokenHelp)}
+                  className="text-primary-600 hover:text-primary-700 text-xs font-normal flex items-center gap-1"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  How to generate?
+                </button>
+              </label>
+              <input
+                type="password"
+                value={whatsappForm.accessToken}
+                onChange={(e) => setWhatsappForm({ ...whatsappForm, accessToken: e.target.value })}
+                placeholder="EAAG..."
+                className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm font-mono"
+                required
+              />
+              {!showTokenHelp && (
+                <p className="text-xs text-gray-500 mt-1">
+                  💡 Click "How to generate?" above for step-by-step instructions
+                </p>
+              )}
+            </div>
+
+            {/* Token Type Selector */}
+            <div>
+              <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
+                Token Type *
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setWhatsappForm({ ...whatsappForm, tokenType: 'system-user' })}
+                  className={`p-3 rounded-lg border-2 transition-all text-left ${
+                    whatsappForm.tokenType === 'system-user'
+                      ? 'border-green-500 bg-green-50'
+                      : 'border-gray-200 hover:border-gray-300 bg-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                      whatsappForm.tokenType === 'system-user' ? 'border-green-500' : 'border-gray-300'
+                    }`}>
+                      {whatsappForm.tokenType === 'system-user' && (
+                        <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                      )}
+                    </div>
+                    <span className="font-semibold text-sm text-gray-900">System User</span>
+                    <span className="bg-green-500 text-white text-xs px-1.5 py-0.5 rounded font-bold">BEST</span>
+                  </div>
+                  <p className="text-xs text-gray-600 ml-6">Never expires, production-ready</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWhatsappForm({ ...whatsappForm, tokenType: 'temporary' })}
+                  className={`p-3 rounded-lg border-2 transition-all text-left ${
+                    whatsappForm.tokenType === 'temporary'
+                      ? 'border-amber-500 bg-amber-50'
+                      : 'border-gray-200 hover:border-gray-300 bg-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                      whatsappForm.tokenType === 'temporary' ? 'border-amber-500' : 'border-gray-300'
+                    }`}>
+                      {whatsappForm.tokenType === 'temporary' && (
+                        <div className="w-2 h-2 bg-amber-500 rounded-full"></div>
+                      )}
+                    </div>
+                    <span className="font-semibold text-sm text-gray-900">Temporary</span>
+                    <span className="bg-amber-500 text-white text-xs px-1.5 py-0.5 rounded font-bold">TEST</span>
+                  </div>
+                  <p className="text-xs text-gray-600 ml-6">Expires in 24 hours, testing only</p>
+                </button>
+              </div>
+            </div>
+
+            <div className="pt-2">
+              <button
+                type="submit"
+                disabled={isWhatsappLoading}
+                className="w-full h-14 bg-primary-500 hover:bg-primary-600 active:bg-primary-700 text-white px-6 rounded-xl font-semibold transition-all disabled:bg-slate-400 disabled:cursor-not-allowed flex items-center justify-center shadow-sm hover:shadow-md"
+              >
+                {isWhatsappLoading ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Saving...
+                  </>
+                ) : whatsappIntegration ? (
+                  'Update WhatsApp Configuration'
+                ) : (
+                  'Connect WhatsApp Business'
+                )}
+              </button>
+            </div>
+          </form>
+
+          {/* Interactive Setup Guide */}
+          <div className="mt-8 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-bold text-blue-900 text-base">📘 WhatsApp Setup Guide</h3>
+                  <p className="text-sm text-blue-700 mt-0.5">First time? Follow our step-by-step guide</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSetupHelp(!showSetupHelp)}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-all flex items-center gap-2 shadow-sm hover:shadow-md"
+              >
+                {showSetupHelp ? (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                    </svg>
+                    Hide Guide
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                    View Guide
+                  </>
+                )}
+              </button>
+            </div>
+
+            {!showSetupHelp && (
+              <p className="text-sm text-blue-700">
+                💡 New to WhatsApp Cloud API? Click <strong>"View Guide"</strong> for complete setup instructions
+              </p>
+            )}
+
+            {showSetupHelp && (
+              <div className="mt-4 space-y-4">
+                {/* Step 1: Create WhatsApp App */}
+                <div className="bg-white rounded-lg p-4 border border-purple-200 shadow-sm">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-8 h-8 bg-purple-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <span className="text-white font-bold text-sm">1</span>
+                    </div>
+                    <h4 className="font-bold text-purple-900 text-sm">Create WhatsApp Business App</h4>
+                  </div>
+                  <div className="ml-11 space-y-2 text-xs text-gray-700">
+                    <p>✅ Go to <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener noreferrer" className="text-purple-600 hover:underline font-semibold">Meta for Developers</a></p>
+                    <p>✅ Click <strong>"Create App"</strong> → Select <strong>"Business"</strong> type</p>
+                    <p>✅ Choose <strong>"Connect with customers through WhatsApp"</strong> use case</p>
+                    <p>✅ Enter your app name and business email</p>
+                  </div>
+                </div>
+
+                {/* Step 2: Get Credentials */}
+                <div className="bg-white rounded-lg p-4 border border-blue-200 shadow-sm">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <span className="text-white font-bold text-sm">2</span>
+                    </div>
+                    <h4 className="font-bold text-blue-900 text-sm">Get Phone Number ID & Business Account ID</h4>
+                  </div>
+                  <div className="ml-11 space-y-2 text-xs text-gray-700">
+                    <p>✅ In your app, click <strong>"Use cases"</strong> → <strong>"Customize"</strong></p>
+                    <p>✅ Find <strong>"API Setup"</strong> panel on the right</p>
+                    <p>✅ Copy <strong>"Phone number ID"</strong> and <strong>"WhatsApp Business Account ID"</strong></p>
+                    <p>✅ Paste them in the form fields above</p>
+                  </div>
+                </div>
+
+                {/* Step 3: Generate Access Token */}
+                <div className="bg-white rounded-lg p-4 border border-green-200 shadow-sm">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <span className="text-white font-bold text-sm">3</span>
+                    </div>
+                    <h4 className="font-bold text-green-900 text-sm">Generate Permanent Access Token</h4>
+                  </div>
+                  <div className="ml-11 space-y-2 text-xs text-gray-700">
+                    <p>✅ Go to <a href="https://business.facebook.com/settings/system-users" target="_blank" rel="noopener noreferrer" className="text-green-600 hover:underline font-semibold">Meta Business Settings → System Users</a></p>
+                    <p>✅ Click <strong>"Add"</strong> → Create new System User (Admin role)</p>
+                    <p>✅ Click on your System User → <strong>"Generate New Token"</strong></p>
+                    <p>✅ Select your app, check permissions: <code className="bg-gray-100 px-1">whatsapp_business_management</code>, <code className="bg-gray-100 px-1">whatsapp_business_messaging</code></p>
+                    <p>✅ Copy the token and paste in the <strong>"Access Token"</strong> field above</p>
+                    <p className="text-green-700 font-medium">💡 System User tokens never expire - perfect for production!</p>
+                  </div>
+                </div>
+
+                {/* Step 4: Configure Webhook */}
+                <div className="bg-white rounded-lg p-4 border border-amber-200 shadow-sm">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <span className="text-white font-bold text-sm">4</span>
+                    </div>
+                    <h4 className="font-bold text-amber-900 text-sm">Configure Webhook (See Details Below)</h4>
+                  </div>
+                  <div className="ml-11 space-y-2 text-xs text-gray-700">
+                    <p>✅ The <strong>Webhook Configuration</strong> section below has complete details</p>
+                    <p>✅ You'll need your webhook URL and verify token</p>
+                    <p>✅ Configure in Meta App → WhatsApp → Configuration → Webhook</p>
+                  </div>
+                </div>
+
+                {/* Step 5: Save & Test */}
+                <div className="bg-white rounded-lg p-4 border border-emerald-200 shadow-sm">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <span className="text-white font-bold text-sm">5</span>
+                    </div>
+                    <h4 className="font-bold text-emerald-900 text-sm">Save & Test Connection</h4>
+                  </div>
+                  <div className="ml-11 space-y-2 text-xs text-gray-700">
+                    <p>✅ Fill all fields in the form above</p>
+                    <p>✅ Click <strong>"Connect WhatsApp Business"</strong></p>
+                    <p>✅ Look for green success message ✅</p>
+                    <p>✅ Use <strong>"Check Now"</strong> button in health status card to verify</p>
+                    <p className="text-emerald-700 font-medium">🎉 You're ready to start messaging!</p>
+                  </div>
+                </div>
+
+                {/* Quick Links */}
+                <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg p-4 border border-indigo-200">
+                  <h4 className="font-semibold text-indigo-900 text-sm mb-3 flex items-center gap-2">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                    </svg>
+                    Quick Links
+                  </h4>
+                  <div className="grid sm:grid-cols-2 gap-2">
+                    <a 
+                      href="https://developers.facebook.com/apps" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 p-2 bg-white rounded border border-indigo-200 hover:shadow-md transition-shadow text-xs text-indigo-700 hover:text-indigo-900 font-medium"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                      Meta Developer Dashboard
+                    </a>
+                    <a 
+                      href="https://business.facebook.com/settings/system-users" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 p-2 bg-white rounded border border-indigo-200 hover:shadow-md transition-shadow text-xs text-indigo-700 hover:text-indigo-900 font-medium"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                      Meta Business Settings
+                    </a>
+                    <a 
+                      href="https://developers.facebook.com/docs/whatsapp/cloud-api/get-started" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 p-2 bg-white rounded border border-indigo-200 hover:shadow-md transition-shadow text-xs text-indigo-700 hover:text-indigo-900 font-medium"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                      Official WhatsApp Docs
+                    </a>
+                    <a 
+                      href="https://business.facebook.com/wa/manage/home" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 p-2 bg-white rounded border border-indigo-200 hover:shadow-md transition-shadow text-xs text-indigo-700 hover:text-indigo-900 font-medium"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                      WhatsApp Manager
+                    </a>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowSetupHelp(false)}
+                  className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-all shadow-sm hover:shadow-md"
+                >
+                  ✓ Got it, close guide
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Webhook Configuration */}
+          <div className="mt-6 bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-300 rounded-xl p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-amber-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="font-bold text-amber-900 text-base">🔧 Webhook Configuration</h3>
+                  <p className="text-xs text-amber-700">Required for receiving customer messages</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowWebhookConfig(!showWebhookConfig)}
+                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5"
+              >
+                {showWebhookConfig ? (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                    </svg>
+                    Hide Config
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                    View Config
+                  </>
+                )}
+              </button>
+            </div>
+
+            {!showWebhookConfig && (
+              <p className="text-sm text-amber-700">
+                💡 Click <strong>"View Config"</strong> to configure webhook for receiving messages
+              </p>
+            )}
+
+            {showWebhookConfig && (
+              <>
+                {/* Quick Navigation Path */}
+                <div className="bg-white border border-amber-200 rounded-lg p-3 mb-4">
+              <div className="flex items-center gap-2 text-xs text-amber-800">
+                <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+                <span className="font-semibold">Meta Dashboard</span>
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+                <span>Your App</span>
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+                <span>WhatsApp</span>
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+                <span className="font-semibold text-amber-900">Configuration</span>
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+                <span>Webhook</span>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {/* Step 1: Callback URL */}
+              <div className="bg-white rounded-lg p-4 border border-amber-200">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 bg-amber-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <span className="text-white font-bold text-xs">1</span>
+                    </div>
+                    <span className="font-semibold text-amber-900 text-sm">Callback URL</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText('https://thriftless-nonviable-waylon.ngrok-free.dev/api/whatsapp/webhook');
+                      toast.success('Webhook URL copied to clipboard!');
+                    }}
+                    className="px-3 py-1 bg-amber-100 hover:bg-amber-200 text-amber-800 text-xs font-medium rounded border border-amber-300 transition-colors flex items-center gap-1.5"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                    Copy URL
+                  </button>
+                </div>
+                
+                <div className="space-y-2">
+                  <div className="bg-green-50 border border-green-300 rounded-lg p-3">
+                    <div className="flex items-center gap-2 mb-2">
+                      <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <span className="text-xs font-semibold text-green-800">Your ngrok URL (Ready to Use)</span>
+                    </div>
+                    <code className="block bg-white text-green-900 px-3 py-2.5 rounded text-xs font-mono break-all border border-green-200">
+                      https://thriftless-nonviable-waylon.ngrok-free.dev/api/whatsapp/webhook
+                    </code>
+                  </div>
+
+                  {/* How to get ngrok URL helper */}
+                  <details className="group">
+                    <summary className="cursor-pointer list-none">
+                      <div className="flex items-center gap-2 text-xs text-amber-700 hover:text-amber-900 transition-colors p-2 rounded hover:bg-amber-100">
+                        <svg className="w-4 h-4 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                        <span className="font-medium">🔍 How to get your ngrok URL?</span>
+                      </div>
+                    </summary>
+                    <div className="mt-2 ml-6 p-3 bg-amber-100/50 border border-amber-200 rounded-lg space-y-2 text-xs">
+                      <div className="font-semibold text-amber-900 mb-2">📋 Quick Guide:</div>
+                      <div className="space-y-1.5">
+                        <div className="flex items-start gap-2">
+                          <span className="text-amber-700 font-bold">1.</span>
+                          <span className="text-amber-800">Open terminal/PowerShell in your project folder</span>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <span className="text-amber-700 font-bold">2.</span>
+                          <div>
+                            <span className="text-amber-800">Run: </span>
+                            <code className="bg-white px-2 py-0.5 rounded border border-amber-300 font-mono text-xs">ngrok http 3000</code>
+                          </div>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <span className="text-amber-700 font-bold">3.</span>
+                          <span className="text-amber-800">Copy the "Forwarding" URL (e.g., <code className="bg-white px-1 rounded">https://abc-123.ngrok-free.app</code>)</span>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <span className="text-amber-700 font-bold">4.</span>
+                          <span className="text-amber-800">Add <code className="bg-white px-1 rounded">/api/whatsapp/webhook</code> to the end</span>
+                        </div>
+                      </div>
+                      <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded">
+                        <div className="flex items-start gap-2">
+                          <svg className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <span className="text-xs text-blue-800">
+                            Your current ngrok URL is shown above. If you restart ngrok, update the webhook URL in Meta.
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </details>
+                </div>
+              </div>
+
+              {/* Step 2: Verify Token */}
+              <div className="bg-white rounded-lg p-4 border border-amber-200">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 bg-amber-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <span className="text-white font-bold text-xs">2</span>
+                    </div>
+                    <span className="font-semibold text-amber-900 text-sm">Verify Token</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText('mySecureWebhookToken2024');
+                      toast.success('Verify token copied to clipboard!');
+                    }}
+                    className="px-3 py-1 bg-amber-100 hover:bg-amber-200 text-amber-800 text-xs font-medium rounded border border-amber-300 transition-colors flex items-center gap-1.5"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                    Copy Token
+                  </button>
+                </div>
+                
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                  <div className="flex items-start gap-2 mb-2">
+                    <svg className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <div>
+                      <div className="font-semibold text-red-900 text-xs mb-1">⚠️ System-Wide Secret Token</div>
+                      <div className="text-xs text-red-800 mb-2">
+                        This token is stored in your backend <code className="bg-red-100 px-1.5 py-0.5 rounded font-mono">WHATSAPP_WEBHOOK_VERIFY_TOKEN</code> variable
+                      </div>
+                      <code className="block bg-white text-red-900 px-3 py-2 rounded text-xs font-mono border border-red-300">
+                        mySecureWebhookToken2024
+                      </code>
+                    </div>
+                  </div>
+                  <div className="text-xs text-red-700 mt-2 px-7">
+                    💡 If you need to change this, contact your system administrator
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 3: Subscribe to Webhook Fields */}
+              <div className="bg-white rounded-lg p-4 border border-amber-200">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-7 h-7 bg-amber-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <span className="text-white font-bold text-xs">3</span>
+                  </div>
+                  <span className="font-semibold text-amber-900 text-sm">Subscribe to Webhook Fields</span>
+                </div>
+                
+                <div className="space-y-3">
+                  {/* Required Fields */}
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                    <div className="text-xs font-semibold text-red-800 mb-2 flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      🔴 REQUIRED (Must Subscribe):
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <div className="flex items-center gap-1.5 bg-white text-red-800 px-3 py-1.5 rounded-full border border-red-300 shadow-sm">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        <code className="text-xs font-mono font-semibold">messages</code>
+                      </div>
+                    </div>
+                    <div className="text-xs text-red-700 mt-2">
+                      ✅ Includes incoming messages + delivery/read receipts • Without this, your Inbox will be empty!
+                    </div>
+                  </div>
+
+                  {/* Not Available Fields */}
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                    <div className="text-xs font-semibold text-amber-800 mb-2 flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      ⚠️ SKIP THESE (Will Fail):
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <div className="flex items-center gap-1.5 bg-white text-amber-800 px-3 py-1.5 rounded-full border border-amber-300">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                        <code className="text-xs font-mono font-semibold">messaging_handovers</code>
+                      </div>
+                    </div>
+                    <div className="text-xs text-amber-700 mt-2">
+                      ❌ Requires WhatsApp Platform Partner status - subscription will fail
+                    </div>
+                  </div>
+
+                  {/* Optional Fields (Collapsed by default) */}
+                  <details className="group">
+                    <summary className="cursor-pointer list-none">
+                      <div className="flex items-center gap-2 text-xs text-blue-700 hover:text-blue-900 transition-colors p-2 rounded hover:bg-blue-50 border border-blue-200">
+                        <svg className="w-4 h-4 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                        <span className="font-medium">⚪ Optional Fields (Not Implemented)</span>
+                      </div>
+                    </summary>
+                    <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <div className="flex flex-wrap gap-2">
+                        <code className="text-xs bg-white text-blue-800 px-2 py-1 rounded border border-blue-300">account_alerts</code>
+                        <code className="text-xs bg-white text-blue-800 px-2 py-1 rounded border border-blue-300">message_template_status_update</code>
+                        <code className="text-xs bg-white text-blue-800 px-2 py-1 rounded border border-blue-300">phone_number_quality_update</code>
+                      </div>
+                      <div className="text-xs text-blue-700 mt-2">
+                        These fields require backend implementation and are not currently in use.
+                      </div>
+                    </div>
+                  </details>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Action Summary */}
+            <div className="mt-4 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-300 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <h4 className="font-bold text-green-900 text-sm mb-2">✅ Action Checklist</h4>
+                  <div className="space-y-1.5 text-xs text-green-800">
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-green-200 flex items-center justify-center text-green-700 font-bold">1</span>
+                      <span>Open Meta Dashboard → WhatsApp → Configuration → Webhook</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-green-200 flex items-center justify-center text-green-700 font-bold">2</span>
+                      <span>Click "Edit" and paste Callback URL + Verify Token</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-green-200 flex items-center justify-center text-green-700 font-bold">3</span>
+                      <span>Click "Verify and Save"</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-green-200 flex items-center justify-center text-green-700 font-bold">4</span>
+                      <span>Subscribe to <code className="bg-green-100 px-1 rounded">messages</code> field</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-green-200 flex items-center justify-center text-green-700 font-bold">5</span>
+                      <span>Click "Save" at the bottom</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Important Production Note */}
+            <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <div className="flex items-start gap-2">
+                <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="text-xs text-blue-800">
+                  <strong className="font-semibold">Development vs Production:</strong> Unpublished Meta apps only receive test webhooks from test numbers. For production use with real customers, submit your app for Meta Business Verification.
+                </p>
+              </div>
+            </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Shopify Integration Tab */}
         {activeTab === 'shopify' && (
           <div className="p-4 sm:p-6 space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-lg sm:text-xl font-semibold text-slate-900 flex items-center gap-2">
-                  🛍️ Shopify Store
+                <h2 className="text-lg sm:text-xl font-semibold text-slate-900 flex items-center gap-3">
+                  <img src="/shopify-logo.png" alt="Shopify" className="w-8 h-8" />
+                  Shopify Store
                 </h2>
                 <p className="text-sm text-slate-600 mt-1">
                   Connect your Shopify store to sync orders automatically
@@ -687,97 +1309,209 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {/* Connection Status Card */}
-            {shopifyStore && (
-              <ConnectionStatusCard
-                type="shopify"
-                status="connected"
-                metrics={{
-                  ...shopifyStore,
-                  lastSync: shopifyStore.lastSyncAt || undefined,
-                }}
-                onDisconnect={handleDeleteShopify}
-              />
+            {/* OAuth Connection (if connected via OAuth) */}
+            {shopifyStore && shopifyStore.tokenType === 'oauth' && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-6">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="font-semibold text-green-900 mb-2">✅ Connected via OAuth</h3>
+                    <p className="text-sm text-green-700">
+                      Store: <span className="font-mono font-semibold">{shopifyStore.shopDomain}</span>
+                    </p>
+                    {shopifyStore.oauthInstalledAt && (
+                      <p className="text-sm text-green-700">
+                        Installed: {new Date(shopifyStore.oauthInstalledAt).toLocaleDateString()}
+                      </p>
+                    )}
+                    <p className="text-xs text-green-600 mt-2">
+                      Scopes: {shopifyStore.scopes?.split(',').join(', ')}
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleOAuthDisconnect}
+                    className="px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg font-medium transition-colors border border-red-200 shadow-sm hover:shadow-md"
+                  >
+                    <span className="flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                      Disconnect
+                    </span>
+                  </button>
+                </div>
+              </div>
             )}
 
-            {/* Configuration Form */}
-            <form onSubmit={handleShopifySubmit} className="space-y-5">
-              <InlineFieldValidator
-                label="Shop Domain"
-                value={shopifyForm.shopDomain}
-                onChange={(value) => {
-                  setShopifyForm({ ...shopifyForm, shopDomain: value });
-                  setHasUnsavedChanges(true);
-                }}
-                placeholder="yourstore.myshopify.com"
-                required
-                validator={validators.shopifyDomain}
-                exampleText="Example: mystore.myshopify.com"
-              />
-
-              <InlineFieldValidator
-                label="Client ID"
-                value={shopifyForm.clientId}
-                onChange={(value) => {
-                  setShopifyForm({ ...shopifyForm, clientId: value });
-                  setHasUnsavedChanges(true);
-                }}
-                placeholder="shp_..."
-                required
-                helpText="Found in Shopify Partners → Apps → Your App → Client ID"
-              />
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Client Secret <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="password"
-                  value={shopifyForm.clientSecret}
-                  onChange={(e) => {
-                    setShopifyForm({ ...shopifyForm, clientSecret: e.target.value });
-                    setHasUnsavedChanges(true);
-                  }}
-                  placeholder="shpss_..."
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  required
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Found in Shopify Partners → Apps → Your App → Client Secret
-                </p>
-              </div>
-
-              {/* Connection Tester */}
-              <ConnectionTester
-                type="shopify"
-                credentials={shopifyForm}
-                onTest={handleTestShopify}
-                disabled={!shopifyForm.shopDomain || !shopifyForm.clientId || !shopifyForm.clientSecret}
-              />
-
-              {/* Submit Button */}
-              <div className="pt-2">
-                <button
-                  type="submit"
-                  disabled={isShopifyLoading}
-                  className="w-full h-14 bg-primary-500 hover:bg-primary-600 active:bg-primary-700 text-white px-6 rounded-xl font-semibold transition-all disabled:bg-slate-400 disabled:cursor-not-allowed flex items-center justify-center shadow-sm hover:shadow-md"
-                >
-                  {isShopifyLoading ? (
-                    <>
-                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            {/* Legacy Client Credentials Connection */}
+            {shopifyStore && shopifyStore.tokenType === 'client-credentials' && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-6">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="font-semibold text-amber-900 mb-2">⚠️ Connected (Legacy Mode)</h3>
+                    <p className="text-sm text-amber-700">
+                      Store: <span className="font-mono font-semibold">{shopifyStore.shopDomain}</span>
+                    </p>
+                    <p className="text-xs text-amber-600 mt-2">
+                      Using Client Credentials (tokens expire every 24h). Consider switching to OAuth for permanent access.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleDeleteShopify}
+                    className="px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg font-medium transition-colors border border-red-200 shadow-sm hover:shadow-md"
+                  >
+                    <span className="flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                       </svg>
-                      Saving...
-                    </>
-                  ) : shopifyStore ? (
-                    '💾 Update Shopify Configuration'
-                  ) : (
-                    '🚀 Connect Shopify Store'
-                  )}
-                </button>
+                      Disconnect
+                    </span>
+                  </button>
+                </div>
               </div>
-            </form>
+            )}
+
+            {/* OAuth Connection UI (if not connected) */}
+            {!shopifyStore && !showLegacyForm && (
+              <div className="border border-slate-200 rounded-xl p-6 space-y-4 bg-gradient-to-br from-green-50 to-blue-50">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-slate-900 mb-1">
+                      Secure OAuth Connection
+                    </h3>
+                    <p className="text-sm text-slate-600">
+                      Connect your Shopify store securely with one click. No manual credentials needed.
+                      Your access token will never expire until you uninstall the app.
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="flex gap-3">
+                  <input
+                    type="text"
+                    placeholder="your-store.myshopify.com"
+                    value={oauthShopDomain}
+                    onChange={(e) => setOauthShopDomain(e.target.value)}
+                    className="flex-1 px-4 py-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                    disabled={isConnectingOAuth}
+                  />
+                  
+                  <button
+                    onClick={handleOAuthConnect}
+                    disabled={isConnectingOAuth || !oauthShopDomain}
+                    className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap"
+                  >
+                    {isConnectingOAuth ? (
+                      <>
+                        <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Connecting...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        Connect Shopify
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                <details className="text-sm">
+                  <summary className="cursor-pointer text-slate-600 hover:text-slate-900 font-medium">
+                    Advanced: Use manual credentials (legacy)
+                  </summary>
+                  <p className="text-xs text-slate-500 mt-2">
+                    Not recommended for production. OAuth provides better security and permanent tokens.
+                  </p>
+                  <button
+                    onClick={() => setShowLegacyForm(true)}
+                    className="mt-2 text-blue-600 hover:text-blue-700 text-xs font-medium"
+                  >
+                    Show manual credentials form →
+                  </button>
+                </details>
+              </div>
+            )}
+
+            {/* Legacy Manual Credentials Form */}
+            {!shopifyStore && showLegacyForm && (
+              <form onSubmit={handleShopifySubmit} className="space-y-5 border border-amber-200 rounded-xl p-6 bg-amber-50">
+                <div className="flex items-start gap-2 mb-4 pb-4 border-b border-amber-200">
+                  <svg className="w-5 h-5 text-amber-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <div className="flex-1">
+                    <div className="font-semibold text-amber-900">Legacy Credentials (Not Recommended)</div>
+                    <div className="text-xs text-amber-700 mt-1">
+                      Manual credentials require token refresh every 24 hours. OAuth provides permanent tokens.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowLegacyForm(false)}
+                    className="text-amber-600 hover:text-amber-800"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Shop Domain *</label>
+                  <input
+                    type="text"
+                    value={shopifyForm.shopDomain}
+                    onChange={(e) => setShopifyForm({ ...shopifyForm, shopDomain: e.target.value })}
+                    placeholder="yourstore.myshopify.com"
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Client ID *</label>
+                  <input
+                    type="text"
+                    value={shopifyForm.clientId}
+                    onChange={(e) => setShopifyForm({ ...shopifyForm, clientId: e.target.value })}
+                    placeholder="shp_..."
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 font-mono"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Client Secret *</label>
+                  <input
+                    type="password"
+                    value={shopifyForm.clientSecret}
+                    onChange={(e) => setShopifyForm({ ...shopifyForm, clientSecret: e.target.value })}
+                    placeholder="shpss_..."
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 font-mono"
+                    required
+                  />
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="submit"
+                    disabled={isShopifyLoading}
+                    className="w-full h-14 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white px-6 rounded-xl font-semibold transition-all disabled:bg-slate-400 disabled:cursor-not-allowed flex items-center justify-center shadow-sm hover:shadow-md"
+                  >
+                    {isShopifyLoading ? 'Saving...' : 'Connect with Manual Credentials'}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         )}
       </div>

@@ -10,6 +10,7 @@ import { AuthModule } from './auth/auth.module';
 import { TenantModule } from './tenant/tenant.module';
 import { WhatsAppModule } from './whatsapp/whatsapp.module';
 import { ShopifyModule } from './shopify/shopify.module';
+import { ShopifyOAuthModule } from './shopify/oauth/shopify-oauth.module';
 import { CrmModule } from './crm/crm.module';
 import { OrdersModule } from './orders/orders.module';
 import { AutomationsModule } from './automations/automations.module';
@@ -52,6 +53,7 @@ import { SettingsModule } from './settings/settings.module';
     TenantModule,
     WhatsAppModule,
     ShopifyModule,
+    ShopifyOAuthModule,
     CrmModule,
     OrdersModule,
     AutomationsModule,

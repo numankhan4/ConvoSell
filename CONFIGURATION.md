@@ -5,6 +5,18 @@ This guide explains how to configure WhatsApp Business API and Shopify integrati
 
 ## WhatsApp Business API Configuration
 
+### ⚠️ IMPORTANT: Webhook Configuration
+
+**Correct Webhook Endpoint:** `/api/whatsapp/webhook`
+
+When configuring webhooks in Meta, use:
+- **Production:** `https://your-domain.com/api/whatsapp/webhook`
+- **Local Dev (ngrok):** `https://YOUR-NGROK-ID.ngrok-free.app/api/whatsapp/webhook`
+
+> 🔴 **Do NOT use:** `/api/webhooks/whatsapp` (incorrect)
+> 
+> ✅ **Use:** `/api/whatsapp/webhook`
+
 ### Prerequisites
 - A Meta Business Account
 - A verified WhatsApp Business Account
@@ -73,14 +85,14 @@ This guide explains how to configure WhatsApp Business API and Shopify integrati
    **You'll see a form asking for:**
    
    **Callback URL:** 
-   - **For Production:** `https://your-domain.com/api/webhooks/whatsapp`
+   - **For Production:** `https://your-domain.com/api/whatsapp/webhook`
    - **For Local Testing:** You need to expose your local server using ngrok:
      ```bash
      # Install ngrok: https://ngrok.com/download
      ngrok http 3000
      
      # Copy the https URL (e.g., https://abc123.ngrok.io)
-     # Your callback URL: https://abc123.ngrok.io/api/webhooks/whatsapp
+     # Your callback URL: https://abc123.ngrok.io/api/whatsapp/webhook
      ```
    - Paste your callback URL in the field
    
@@ -94,10 +106,19 @@ This guide explains how to configure WhatsApp Business API and Shopify integrati
    - If verification succeeds, you'll see a success message
    
    **Subscribe to Webhook Fields:**
-   - After verification, check these fields:
-     - ✅ `messages` (incoming messages)
-     - ✅ `message_status` (delivery/read receipts)
-   - Click **"Save"**
+   
+   After verification, subscribe to this webhook field:
+   
+   **REQUIRED:**
+   - ✅ `messages` - Incoming messages + delivery/read receipts (all-in-one field)
+   
+   **SKIP THESE (Not Available or Not Implemented):**
+   - ❌ `messaging_handovers` - Requires Platform Partner status (will fail)
+   - ⚪ `account_alerts` - Optional (not yet implemented in backend)
+   - ⚪ `message_template_status_update` - Optional (not yet implemented)
+   - ⚪ `phone_number_quality_update` - Optional (not yet implemented)
+   
+   Click **"Subscribe"** next to the `messages` field, then click **"Save"**
    
    **⚠️ Important - App Publishing:**
    - While your app is **unpublished**, webhooks only receive **test data**
@@ -166,7 +187,7 @@ After configuration:
   # Example: https://abc123.ngrok.io
   
   # Use this as your webhook callback URL:
-  # https://abc123.ngrok.io/api/webhooks/whatsapp
+  # https://abc123.ngrok.io/api/whatsapp/webhook
   ```
 - Update webhook URL in Meta when you restart ngrok (URL changes each time in free tier)
 
@@ -228,7 +249,7 @@ After configuration:
 
 ### WhatsApp Webhook URL
 ```
-https://your-domain.com/api/webhooks/whatsapp
+https://your-domain.com/api/whatsapp/webhook
 ```
 
 ### Shopify Webhook URLs
