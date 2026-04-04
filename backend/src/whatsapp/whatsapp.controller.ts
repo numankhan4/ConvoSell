@@ -1,13 +1,19 @@
-import { Controller, Post, Get, Body, Query, Req, Headers, Res, HttpStatus, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Body, Query, Param, Req, Headers, Res, HttpStatus, UseGuards, Logger } from '@nestjs/common';
 import { Response } from 'express';
 import { WhatsAppService } from './whatsapp.service';
 import { Public } from '../common/decorators/public.decorator';
 import { WorkspaceId } from '../common/decorators/user.decorator';
 import { TenantGuard } from '../common/guards/tenant.guard';
+import { PrismaService } from '../common/prisma/prisma.service';
 
 @Controller('whatsapp')
 export class WhatsAppController {
-  constructor(private whatsappService: WhatsAppService) {}
+  private readonly logger = new Logger(WhatsAppController.name);
+
+  constructor(
+    private whatsappService: WhatsAppService,
+    private prisma: PrismaService,
+  ) {}
 
   /**
    * POST /api/whatsapp/send
@@ -52,11 +58,10 @@ export class WhatsAppController {
 
   /**
    * GET /api/whatsapp/webhook
-   * Meta webhook verification (public)
-   * Returns plain text response as required by Meta
+   * Meta webhook verification (public) - LEGACY GLOBAL ENDPOINT
    * 
-   * NOTE: This uses a GLOBAL verify token from environment variable (WHATSAPP_WEBHOOK_VERIFY_TOKEN).
-   * For multi-tenant setups, consider implementing per-workspace verification with workspace ID in URL.
+   * @deprecated Use workspace-specific endpoint: GET /api/whatsapp/webhook/:workspaceId
+   * This global endpoint will be removed in a future version.
    */
   @Public()
   @Get('webhook')
@@ -69,10 +74,105 @@ export class WhatsAppController {
     const verifyToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;
 
     if (mode === 'subscribe' && token === verifyToken) {
-      // Return challenge as plain text (Meta requires this)
+      this.logger.warn('Using deprecated global webhook endpoint. Please migrate to workspace-specific endpoints.');
       return res.status(HttpStatus.OK).send(challenge);
     }
 
     return res.status(HttpStatus.FORBIDDEN).json({ error: 'Verification failed' });
+  }
+
+  /**
+   * GET /api/whatsapp/webhook/:workspaceId
+   * Meta webhook verification - PER-TENANT ENDPOINT (Recommended)
+   * 
+   * Each workspace gets a unique webhook URL and verify token for better security isolation.
+   * URL format: https://your-domain.com/api/whatsapp/webhook/:workspaceId
+   */
+  @Public()
+  @Get('webhook/:workspaceId')
+  async verifyWebhookPerTenant(
+    @Param('workspaceId') workspaceId: string,
+    @Query('hub.mode') mode: string,
+    @Query('hub.verify_token') token: string,
+    @Query('hub.challenge') challenge: string,
+    @Res() res: Response,
+  ) {
+    try {
+      // Find workspace's WhatsApp integration
+      const integration = await this.prisma.whatsAppIntegration.findFirst({
+        where: { 
+          workspaceId,
+          isActive: true,
+        },
+      });
+
+      if (!integration) {
+        this.logger.warn(`Webhook verification failed: No active integration for workspace ${workspaceId}`);
+        return res.status(HttpStatus.NOT_FOUND).json({ error: 'Workspace not found or integration not active' });
+      }
+
+      // Verify token matches workspace's token
+      if (mode === 'subscribe' && token === integration.webhookVerifyToken) {
+        this.logger.log(`Webhook verified successfully for workspace: ${workspaceId}`);
+        return res.status(HttpStatus.OK).send(challenge);
+      }
+
+      this.logger.warn(`Webhook verification failed for workspace ${workspaceId}: Invalid token`);
+      return res.status(HttpStatus.FORBIDDEN).json({ error: 'Verification failed' });
+    } catch (error) {
+      this.logger.error(`Error verifying webhook for workspace ${workspaceId}:`, error);
+      return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ error: 'Verification error' });
+    }
+  }
+
+  /**
+   * POST /api/whatsapp/webhook/:workspaceId
+   * Meta webhook handler - PER-TENANT ENDPOINT (Recommended)
+   * 
+   * Receives webhook events for a specific workspace.
+   */
+  @Public()
+  @Post('webhook/:workspaceId')
+  async handleWebhookPerTenant(
+    @Param('workspaceId') workspaceId: string,
+    @Headers('x-hub-signature-256') signature: string,
+    @Body() body: any,
+  ) {
+    try {
+      // Verify the workspace has an active integration
+      const integration = await this.prisma.whatsAppIntegration.findFirst({
+        where: { 
+          workspaceId,
+          isActive: true,
+        },
+      });
+
+      if (!integration) {
+        this.logger.warn(`Webhook event rejected: No active integration for workspace ${workspaceId}`);
+        return { error: 'Workspace not found or integration not active' };
+      }
+
+      // Verify signature (optional in development, required in production)
+      if (signature && process.env.NODE_ENV === 'production') {
+        const isValid = this.whatsappService.verifyWebhookSignature(
+          signature,
+          JSON.stringify(body),
+        );
+
+        if (!isValid) {
+          this.logger.warn(`Invalid webhook signature for workspace ${workspaceId}`);
+          return { error: 'Invalid signature' };
+        }
+      }
+
+      // Process webhook event
+      this.logger.log(`Processing webhook event for workspace: ${workspaceId}`);
+      await this.whatsappService.handleWebhookEvent(body);
+
+      return { success: true };
+    } catch (error) {
+      this.logger.error(`Error handling webhook for workspace ${workspaceId}:`, error);
+      return { error: 'Webhook processing failed' };
+    }
   }
 }

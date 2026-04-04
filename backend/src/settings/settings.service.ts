@@ -6,6 +6,7 @@ import { WhatsAppTokenService } from './whatsapp-token.service';
 import { CreateWhatsAppIntegrationDto, UpdateWhatsAppIntegrationDto } from './dto/whatsapp-integration.dto';
 import { CreateShopifyStoreDto, UpdateShopifyStoreDto } from './dto/shopify-store.dto';
 import { firstValueFrom } from 'rxjs';
+import { generateWebhookVerifyToken } from '../common/utils/crypto.util';
 
 @Injectable()
 export class SettingsService {
@@ -77,6 +78,9 @@ export class SettingsService {
       tokenExpiresAt.setDate(tokenExpiresAt.getDate() + 60);
     }
 
+    // Generate unique webhook verify token for this workspace
+    const webhookVerifyToken = generateWebhookVerifyToken();
+
     const integration = await this.prisma.whatsAppIntegration.create({
       data: {
         workspaceId,
@@ -85,7 +89,7 @@ export class SettingsService {
         businessAccountId: dto.businessAccountId,
         accessToken: dto.accessToken, // TODO: Encrypt in production
         refreshToken: dto.refreshToken,
-        webhookVerifyToken: dto.webhookVerifyToken || 'not-used-see-env', // Webhook verification uses env variable
+        webhookVerifyToken, // Unique per workspace
         tokenType,
         tokenExpiresAt,
         isActive: dto.isActive ?? true,
@@ -96,6 +100,7 @@ export class SettingsService {
         phoneNumberId: true,
         phoneNumber: true,
         businessAccountId: true,
+        webhookVerifyToken: true, // Return token to show in UI
         tokenType: true,
         tokenExpiresAt: true,
         healthStatus: true,
@@ -817,20 +822,36 @@ export class SettingsService {
    */
   async getWebhookUrls(workspaceId: string) {
     const apiUrl = this.config.get('API_URL') || 'http://localhost:3000';
-    const webhookVerifyToken = this.config.get('WHATSAPP_WEBHOOK_VERIFY_TOKEN');
+    
+    // Get workspace-specific webhook verify token
+    const integration = await this.prisma.whatsAppIntegration.findFirst({
+      where: { workspaceId },
+      select: {
+        webhookVerifyToken: true,
+      },
+    });
+
+    const webhookVerifyToken = integration?.webhookVerifyToken || 'integration-not-configured';
     
     return {
       whatsapp: {
-        callbackUrl: `${apiUrl}/api/whatsapp/webhook`,
-        verifyToken: webhookVerifyToken || 'not-configured-in-env',
+        // NEW: Workspace-specific webhook URL (recommended for multi-tenant)
+        callbackUrl: `${apiUrl}/api/whatsapp/webhook/${workspaceId}`,
+        verifyToken: webhookVerifyToken,
+        
+        // Legacy global endpoint (deprecated)
+        legacyCallbackUrl: `${apiUrl}/api/whatsapp/webhook`,
+        legacyVerifyToken: this.config.get('WHATSAPP_WEBHOOK_VERIFY_TOKEN') || 'not-configured',
+        
         setupInstructions: [
           '1. Go to Meta App Dashboard → WhatsApp → Configuration',
           '2. Click "Edit" in Webhook section',
-          '3. Paste the Callback URL above',
-          '4. Paste the Verify Token above',
+          '3. Paste the Callback URL above (workspace-specific URL)',
+          '4. Paste the Verify Token above (unique for your workspace)',
           '5. Subscribe to "messages" webhook field',
           '6. Click "Verify and Save"',
         ],
+        securityNote: 'Each workspace has a unique webhook URL and token for better security isolation.',
       },
       shopify: {
         callbackUrls: {
