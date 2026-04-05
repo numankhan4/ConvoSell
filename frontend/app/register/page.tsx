@@ -42,54 +42,68 @@ export default function RegisterPage() {
 
   return (
     <div className="flex min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50">
-      {/* Left Side - Branding */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-blue-600 to-blue-700 items-center justify-center p-8 xl:p-12 relative overflow-hidden">
-        {/* Decorative Circles */}
-        <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500 rounded-full opacity-20 blur-3xl"></div>
-        <div className="absolute bottom-0 left-0 w-96 h-96 bg-blue-800 rounded-full opacity-20 blur-3xl"></div>
-        
-        <div className="relative z-10 text-white max-w-lg">
-          {/* Icon with Chat + Arrow */}
-          <div className="mb-6 lg:mb-8 inline-flex items-center justify-center w-16 h-16 lg:w-20 lg:h-20 bg-white/10 backdrop-blur-sm rounded-2xl">
-            <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" className="opacity-70" />
-            </svg>
+      {/* Left Side - Premium SaaS Branding */}
+      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-primary-700 to-primary-900 items-center justify-center p-10 relative overflow-hidden">
+
+        {/* Subtle light gradient (clean, not blobs) */}
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.08),transparent_40%)]"></div>
+
+        <div className="relative z-10 text-white max-w-lg w-full">
+
+          {/* 🔥 Animated Logo */}
+          <div className="mb-8">
+            <div className="w-16 h-16">
+              {/* paste your animated SVG here */}
+            </div>
           </div>
-          
-          <h1 className="text-3xl lg:text-4xl xl:text-5xl font-bold mb-3 lg:mb-4">
-            Join ConvoSell
+
+          {/* 🔥 HEADLINE (IMPORTANT CHANGE) */}
+          <h1 className="text-4xl font-bold mb-4 leading-tight">
+            Start Recovering Revenue
+            <span className="block text-primary-200">
+              from Day One
+            </span>
           </h1>
-          <p className="text-lg lg:text-xl text-blue-100 mb-6 lg:mb-8">
-            Start verifying orders and reducing fraud today
+
+          <p className="text-lg text-primary-100 mb-8">
+            Verify customers, confirm orders, and reduce fake COD losses with intelligent automation.
           </p>
-          
-          <div className="space-y-4">
-            <div className="flex items-start space-x-3">
-              <svg className="w-6 h-6 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              <p className="text-blue-50">Free 14-day trial, no credit card required</p>
+
+          {/* 🔥 PRODUCT PREVIEW (BIG UPGRADE) */}
+          <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-5 mb-8 shadow-xl">
+
+            <div className="text-sm text-primary-200 mb-3">
+              Live Order Confirmation
             </div>
-            <div className="flex items-start space-x-3">
-              <svg className="w-6 h-6 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              <p className="text-blue-50">Setup in minutes, start confirming orders instantly</p>
+
+            <div className="bg-slate-900 rounded-lg p-4 text-sm space-y-2">
+              <div className="text-green-400">✔ Order Confirmed</div>
+              <div className="text-slate-400">Customer replied: YES</div>
+              <div className="text-slate-500 text-xs">Response time: 2 sec</div>
             </div>
-            <div className="flex items-start space-x-3">
-              <svg className="w-6 h-6 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              <p className="text-blue-50">Trusted by Pakistani e-commerce sellers</p>
-            </div>
-            <div className="flex items-start space-x-3">
-              <svg className="w-6 h-6 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              <p className="text-blue-50">24/7 customer support</p>
-            </div>
+
           </div>
+
+          {/* 🔥 TRUST METRICS (CRITICAL) */}
+          <div className="grid grid-cols-3 gap-4 text-center">
+
+            <div>
+              <div className="text-xl font-bold">70%</div>
+              <div className="text-xs text-primary-200">Fake Orders Reduced</div>
+            </div>
+
+            <div>
+              <div className="text-xl font-bold">2x</div>
+              <div className="text-xs text-primary-200">Higher Confirmation</div>
+            </div>
+
+            <div>
+              <div className="text-xl font-bold">24/7</div>
+              <div className="text-xs text-primary-200">Automation</div>
+            </div>
+
+          </div>
+
         </div>
       </div>
 

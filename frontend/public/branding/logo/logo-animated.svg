@@ -1,0 +1,78 @@
+<!-- convosell-animated-clean.svg -->
+<svg viewBox="0 0 320 80" xmlns="http://www.w3.org/2000/svg">
+
+  <style>
+    .bubble {
+      fill: #4338CA;
+      opacity: 0;
+      animation: fadeIn 0.3s ease-out forwards;
+    }
+
+    .arrow {
+      stroke: white;
+      stroke-width: 3.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+      stroke-dasharray: 60;
+      stroke-dashoffset: 60;
+      animation: draw 0.5s ease-out 0.25s forwards;
+    }
+
+    .arrow-head {
+      fill: white;
+      opacity: 0;
+      animation: fadeIn 0.2s ease-out 0.7s forwards;
+    }
+
+    .text {
+      opacity: 0;
+      animation: fadeIn 0.3s ease-out 0.85s forwards;
+    }
+
+    @keyframes fadeIn {
+      to { opacity: 1; }
+    }
+
+    @keyframes draw {
+      to { stroke-dashoffset: 0; }
+    }
+  </style>
+
+  <!-- EXACT BUBBLE (UNCHANGED) -->
+  <path class="bubble"
+    d="M14 22
+       C14 14 22 10 30 10
+       H50
+       C60 10 66 14 66 22
+       V42
+       C66 50 60 54 50 54
+       H40
+       C38 54 36 55.5 34 58
+       L30 64
+       L30 54
+       H30
+       C22 54 14 50 14 42
+       Z"/>
+
+  <!-- EXACT ARROW (UNCHANGED) -->
+  <path class="arrow"
+    d="M24 40 L34 30 L42 35 L52 24"/>
+
+  <!-- EXACT ARROW HEAD -->
+  <path class="arrow-head"
+    d="M52 24 L49 29 L58 26 Z"/>
+
+  <!-- TEXT (UNCHANGED) -->
+  <text class="text"
+    x="90" y="48"
+    font-family="Inter, sans-serif"
+    font-size="28"
+    font-weight="600">
+
+    <tspan fill="#0F172A">Convo</tspan>
+    <tspan fill="#16A34A">Sell</tspan>
+
+  </text>
+
+</svg>

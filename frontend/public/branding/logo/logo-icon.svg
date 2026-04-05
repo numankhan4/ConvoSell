@@ -1,0 +1,37 @@
+<!-- convosell-icon.svg -->
+<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+
+  <!-- Chat Bubble (UNCHANGED) -->
+  <path
+    d="
+      M14 22
+      C14 14 22 10 30 10
+      H50
+      C60 10 66 14 66 22
+      V42
+      C66 50 60 54 50 54
+      H40
+      C38 54 36 55.5 34 58
+      L30 64
+      L30 54
+      H30
+      C22 54 14 50 14 42
+      Z
+    "
+    fill="#4338CA"/>
+
+  <!-- Arrow Line (UNCHANGED) -->
+  <path
+    d="M24 40 L34 30 L42 35 L52 24"
+    stroke="#FFFFFF"
+    stroke-width="3.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    fill="none"/>
+
+  <!-- Arrow Head (UNCHANGED) -->
+  <path
+    d="M52 24 L49 29 L58 26 Z"
+    fill="#FFFFFF"/>
+
+</svg>

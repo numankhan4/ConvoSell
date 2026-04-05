@@ -7,8 +7,40 @@ import { Toaster } from 'react-hot-toast'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'WhatsApp CRM - E commerce Operating System',
-  description: 'Manage your WhatsApp orders and customer communication',
+  title: 'ConvoSell – Revenue Automation & Order Verification Platform',
+  description: 'Turn conversations into revenue with intelligent automation, order verification, and real-time customer engagement. Reduce fake COD orders and increase delivery success with ConvoSell.',
+  icons: {
+    icon: [
+      {
+        rel: 'icon',
+        type: 'image/png',
+        sizes: '96x96',
+        url: '/favicon-96x96.png',
+      },
+      {
+        rel: 'icon',
+        type: 'image/svg+xml',
+        url: '/favicon.svg',
+      },
+      {
+        rel: 'shortcut icon',
+        url: '/favicon.ico',
+      },
+    ],
+    apple: [
+      {
+        rel: 'apple-touch-icon',
+        sizes: '180x180',
+        url: '/apple-touch-icon.png',
+      },
+    ],
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'ConvoSell',
+  },
+  manifest: '/site.webmanifest',
 }
 
 export default function RootLayout({

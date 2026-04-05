@@ -1,0 +1,36 @@
+<svg viewBox="0 0 320 80" xmlns="http://www.w3.org/2000/svg" fill="none">
+
+  <!-- Smooth Curved Chat Bubble -->
+  <path d="
+    M12 20
+    C12 12 20 8 28 8
+    H50
+    C58 8 66 12 66 20
+    V42
+    C66 50 58 54 50 54
+    H38
+    C36 54 34 55 32 57
+    L28 62
+    L28 54
+    H28
+    C20 54 12 50 12 42
+    Z
+  " fill="#4338CA"></path>
+
+  <!-- Refined Arrow (smooth + structured) -->
+  <path d="
+    M22 40
+    L32 30
+    L40 36
+    L52 24
+  " stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"></path>
+
+  <!-- Arrow Head -->
+  <path d="M52 24L49 29L58 26Z" fill="white"></path>
+
+  <!-- Text -->
+  <text x="90" y="48" font-family="Inter, sans-serif" font-size="28" font-weight="600" fill="#0F172A">
+    Convo<tspan fill="#16A34A">Sell</tspan>
+  </text>
+
+</svg>

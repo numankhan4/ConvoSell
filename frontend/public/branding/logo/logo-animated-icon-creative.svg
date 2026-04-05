@@ -1,0 +1,141 @@
+<!-- convosell-icon-animated-premium.svg -->
+<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+
+  <defs>
+    <!-- Soft Glow -->
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2.5" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <style>
+    .bubble {
+      fill: #4338CA;
+      opacity: 0;
+      animation: fadeIn 0.4s ease-out forwards;
+    }
+
+    .pulse {
+      fill: #4338CA;
+      opacity: 0.2;
+      transform-origin: center;
+      animation: pulse 1.2s ease-out infinite;
+    }
+
+    .signal {
+      stroke: rgba(255,255,255,0.25);
+      stroke-width: 2;
+      fill: none;
+      stroke-dasharray: 20;
+      stroke-dashoffset: 20;
+      animation: signalMove 1s ease-out 0.3s forwards;
+    }
+
+    .arrow {
+      stroke: white;
+      stroke-width: 3.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+      stroke-dasharray: 60;
+      stroke-dashoffset: 60;
+      animation: draw 0.6s cubic-bezier(0.4,0,0.2,1) 0.5s forwards;
+    }
+
+    .arrow-head {
+      fill: white;
+      opacity: 0;
+      transform-origin: center;
+      animation: pop 0.25s ease-out 1.1s forwards;
+    }
+
+    .final-glow {
+      opacity: 0;
+      animation: glowIn 0.3s ease-out 1.2s forwards;
+    }
+
+    @keyframes fadeIn {
+      to { opacity: 1; }
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(1); opacity: 0.2; }
+      70% { transform: scale(1.08); opacity: 0; }
+      100% { opacity: 0; }
+    }
+
+    @keyframes signalMove {
+      to { stroke-dashoffset: 0; }
+    }
+
+    @keyframes draw {
+      to { stroke-dashoffset: 0; }
+    }
+
+    @keyframes pop {
+      0% { transform: scale(0.7); opacity: 0; }
+      70% { transform: scale(1.15); opacity: 1; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    @keyframes glowIn {
+      to { opacity: 1; }
+    }
+  </style>
+
+  <!-- Pulse Background -->
+  <path class="pulse"
+    d="M14 22
+       C14 14 22 10 30 10
+       H50
+       C60 10 66 14 66 22
+       V42
+       C66 50 60 54 50 54
+       H40
+       C38 54 36 55.5 34 58
+       L30 64
+       L30 54
+       H30
+       C22 54 14 50 14 42
+       Z"/>
+
+  <!-- Main Bubble -->
+  <path class="bubble"
+    d="M14 22
+       C14 14 22 10 30 10
+       H50
+       C60 10 66 14 66 22
+       V42
+       C66 50 60 54 50 54
+       H40
+       C38 54 36 55.5 34 58
+       L30 64
+       L30 54
+       H30
+       C22 54 14 50 14 42
+       Z"/>
+
+  <!-- Signal Line -->
+  <path class="signal"
+    d="M20 34 Q28 30 36 34 Q44 38 52 30"/>
+
+  <!-- Arrow -->
+  <path class="arrow"
+    d="M24 40 L34 30 L42 35 L52 24"/>
+
+  <!-- Arrow Head -->
+  <path class="arrow-head"
+    d="M52 24 L49 29 L58 26 Z"/>
+
+  <!-- Glow Finish -->
+  <path class="final-glow"
+    d="M24 40 L34 30 L42 35 L52 24"
+    stroke="#16A34A"
+    stroke-width="2"
+    filter="url(#glow)"/>
+
+</svg>
