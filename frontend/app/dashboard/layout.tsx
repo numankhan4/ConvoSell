@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/store/auth';
+import { usePermissions } from '@/lib/hooks/usePermissions';
 import Link from 'next/link';
 import Image from 'next/image';
 import HealthStatusBanner from '@/components/HealthStatusBanner';
@@ -15,6 +16,7 @@ export default function DashboardLayout({
 }) {
   const router =useRouter();
   const { isAuthenticated, isInitialized, user, currentWorkspace, logout, initialize } = useAuthStore();
+  const { role } = usePermissions();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -124,7 +126,18 @@ export default function DashboardLayout({
               <div className="flex-1 min-w-0">
                 <p className="text-xs sm:text-sm font-medium text-slate-900 truncate">
                   {user?.firstName} {user?.lastName}
-                </p>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <p className="text-xs text-slate-500 truncate">{user?.email}</p>
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase flex-shrink-0 ${
+                    role === 'owner' ? 'bg-purple-100 text-purple-800' :
+                    role === 'admin' ? 'bg-blue-100 text-blue-800' :
+                    role === 'manager' ? 'bg-green-100 text-green-800' :
+                    role === 'agent' ? 'bg-orange-100 text-orange-800' :
+                    'bg-gray-100 text-gray-800'
+                  }`}>
+                    {role}
+                  </span>
+                </div
                 <p className="text-xs text-slate-500 truncate">{user?.email}</p>
               </div>
             </div>

@@ -2,9 +2,12 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { ordersApi } from '@/lib/api';
+import { PermissionGate } from '@/components/PermissionGate';
+import { usePermissions, Permissions } from '@/lib/hooks/usePermissions';
 import Link from 'next/link';
 
 export default function DashboardPage() {
+  const { role } = usePermissions();
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -43,7 +46,18 @@ export default function DashboardPage() {
     <div className="space-y-6 sm:space-y-8">
       {/* Header */}
       <div>
-        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 mb-2">Dashboard</h1>
+        <div className="flex items-center gap-3 mb-2">
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Dashboard</h1>
+          <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${
+            role === 'owner' ? 'bg-purple-100 text-purple-800' :
+            role === 'admin' ? 'bg-blue-100 text-blue-800' :
+            role === 'manager' ? 'bg-green-100 text-green-800' :
+            role === 'agent' ? 'bg-orange-100 text-orange-800' :
+            'bg-gray-100 text-gray-800'
+          }`}>
+            {role}
+          </span>
+        </div>
         <p className="text-sm sm:text-base text-slate-600">Welcome back! Here's an overview of your store's performance.</p>
       </div>
 
@@ -61,18 +75,36 @@ export default function DashboardPage() {
           }
           color="blue"
         />
-        <StatCard
-          title="Total Revenue"
-          value={`PKR ${stats?.totalRevenue?.toLocaleString() || 0}`}
-          change="From confirmed orders"
-          trend="up"
-          icon={
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+        <PermissionGate 
+          permission={Permissions.ANALYTICS_VIEW_REVENUE}
+          fallback={
+            <div className="bg-white rounded-lg shadow-sm border-2 border-dashed border-slate-300 p-6">
+              <div className="flex items-center justify-between mb-3">
+                <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center">
+                  <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                </div>
+              </div>
+              <h3 className="text-sm font-medium text-gray-600 mb-1">Total Revenue</h3>
+              <p className="text-2xl font-bold text-gray-400">••••••</p>
+              <p className="text-xs text-gray-500 mt-2">Manager+ access required</p>
+            </div>
           }
-          color="green"
-        />
+        >
+          <StatCard
+            title="Total Revenue"
+            value={`PKR ${stats?.totalRevenue?.toLocaleString() || 0}`}
+            change="From confirmed orders"
+            trend="up"
+            icon={
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            }
+            color="green"
+          />
+        </PermissionGate>
         <StatCard
           title="Confirmed Orders"
           value={stats?.confirmedOrders || 0}
