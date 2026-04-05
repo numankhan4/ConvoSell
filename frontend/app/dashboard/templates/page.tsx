@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { toast } from 'react-hot-toast';
 import { api } from '@/lib/api';
+import { PermissionGate } from '@/components/PermissionGate';
+import { usePermissions, Permissions } from '@/lib/hooks/usePermissions';
 
 interface Template {
   id: string;
@@ -29,6 +31,7 @@ interface QuotaStatus {
 }
 
 export default function TemplatesPage() {
+  const { role } = usePermissions();
   const [templates, setTemplates] = useState<Template[]>([]);
   const [quota, setQuota] = useState<QuotaStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -89,20 +92,33 @@ export default function TemplatesPage() {
       <div className="mb-8">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Message Templates</h1>
-            <p className="mt-1 text-sm text-gray-500">
+            <div className="flex items-center gap-3 mb-1">
+              <h1 className="text-3xl font-bold text-gray-900">Message Templates</h1>
+              <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${
+                role === 'owner' ? 'bg-purple-100 text-purple-800' :
+                role === 'admin' ? 'bg-blue-100 text-blue-800' :
+                role === 'manager' ? 'bg-green-100 text-green-800' :
+                role === 'agent' ? 'bg-orange-100 text-orange-800' :
+                'bg-gray-100 text-gray-800'
+              }`}>
+                {role}
+              </span>
+            </div>
+            <p className="text-sm text-gray-500">
               Create and manage WhatsApp message templates for automated outreach
             </p>
           </div>
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-          >
+          <PermissionGate permission={Permissions.TEMPLATES_CREATE}>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
             <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
             Create Template
           </button>
+        </PermissionGate>
         </div>
 
         {/* Quota Card */}
@@ -257,7 +273,9 @@ export default function TemplatesPage() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <button className="text-blue-600 hover:text-blue-900 mr-3">View</button>
-                    <button className="text-gray-600 hover:text-gray-900">Delete</button>
+                    <PermissionGate permission={Permissions.TEMPLATES_DELETE}>
+                      <button className="text-gray-600 hover:text-gray-900">Delete</button>
+                    </PermissionGate>
                   </td>
                 </tr>
               ))}

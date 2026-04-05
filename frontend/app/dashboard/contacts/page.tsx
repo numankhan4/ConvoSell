@@ -2,10 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { crmApi } from '@/lib/api';
+import { PermissionGate } from '@/components/PermissionGate';
+import { usePermissions, Permissions } from '@/lib/hooks/usePermissions';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 
 export default function ContactsPage() {
+  const { role } = usePermissions();
   const [contacts, setContacts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -155,20 +158,33 @@ export default function ContactsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Contacts</h1>
-          <p className="text-sm sm:text-base text-slate-600 mt-1">
+          <div className="flex items-center gap-3 mb-1">
+            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Contacts</h1>
+            <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${
+              role === 'owner' ? 'bg-purple-100 text-purple-800' :
+              role === 'admin' ? 'bg-blue-100 text-blue-800' :
+              role === 'manager' ? 'bg-green-100 text-green-800' :
+              role === 'agent' ? 'bg-orange-100 text-orange-800' :
+              'bg-gray-100 text-gray-800'
+            }`}>
+              {role}
+            </span>
+          </div>
+          <p className="text-sm sm:text-base text-slate-600">
             Manage your customer database
           </p>
         </div>
         <div className="flex items-center space-x-3">
-          <button 
-            onClick={openAddModal}
-            className="px-4 py-2 bg-primary-500 hover:bg-primary-600 text-white rounded-lg flex items-center space-x-2 transition-colors">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            <span>Add Contact</span>
-          </button>
+          <PermissionGate permission={Permissions.CONTACTS_CREATE}>
+            <button 
+              onClick={openAddModal}
+              className="px-4 py-2 bg-primary-500 hover:bg-primary-600 text-white rounded-lg flex items-center space-x-2 transition-colors">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              <span>Add Contact</span>
+            </button>
+          </PermissionGate>
         </div>
       </div>
 
@@ -499,9 +515,11 @@ export default function ContactsPage() {
 
             {/* Modal Footer */}
             <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-between">
-              <button className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors font-medium text-sm">
-                Delete Contact
-              </button>
+              <PermissionGate permission={Permissions.CONTACTS_DELETE}>
+                <button className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors font-medium text-sm">
+                  Delete Contact
+                </button>
+              </PermissionGate>
               <div className="flex items-center space-x-3">
                 <button
                   onClick={closeDetailsModal}

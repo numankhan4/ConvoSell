@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { automationsApi } from '@/lib/api';
+import { PermissionGate } from '@/components/PermissionGate';
+import { usePermissions, Permissions } from '@/lib/hooks/usePermissions';
 import toast from 'react-hot-toast';
 
 interface Automation {
@@ -28,6 +30,7 @@ interface Automation {
 }
 
 export default function AutomationsPage() {
+  const { role } = usePermissions();
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -156,33 +159,48 @@ export default function AutomationsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Automations</h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <div className="flex items-center gap-3 mb-1">
+            <h1 className="text-2xl font-bold text-slate-900">Automations</h1>
+            <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${
+              role === 'owner' ? 'bg-purple-100 text-purple-800' :
+              role === 'admin' ? 'bg-blue-100 text-blue-800' :
+              role === 'manager' ? 'bg-green-100 text-green-800' :
+              role === 'agent' ? 'bg-orange-100 text-orange-800' :
+              'bg-gray-100 text-gray-800'
+            }`}>
+              {role}
+            </span>
+          </div>
+          <p className="text-sm text-slate-500">
             Automate order confirmations, reminders, and status updates
           </p>
         </div>
         <div className="flex gap-2">
           {selectedIds.length > 0 && (
+            <PermissionGate permission={Permissions.AUTOMATIONS_DELETE}>
+              <button
+                onClick={handleDeleteMultiple}
+                disabled={deleting}
+                className="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
+              >
+                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Delete {selectedIds.length} Selected
+              </button>
+            </PermissionGate>
+          )}
+          <PermissionGate permission={Permissions.AUTOMATIONS_CREATE}>
             <button
-              onClick={handleDeleteMultiple}
-              disabled={deleting}
-              className="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
+              onClick={() => setShowCreateModal(true)}
+              className="inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
             >
               <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
-              Delete {selectedIds.length} Selected
+              Create Automation
             </button>
-          )}
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-          >
-            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            Create Automation
-          </button>
+          </PermissionGate>
         </div>
       </div>
 
@@ -255,7 +273,8 @@ export default function AutomationsPage() {
 
       {/* Quick Start Templates (only show if no automations exist) */}
       {automations.length === 0 && !loading && (
-        <>
+        <PermissionGate permission={Permissions.AUTOMATIONS_CREATE}>
+          <>
           {/* WhatsApp Restrictions Notice */}
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
             <div className="flex">
@@ -411,6 +430,7 @@ export default function AutomationsPage() {
           </div>
         </div>
         </>
+        </PermissionGate>
       )}
 
       {/* Automations List */}
@@ -556,24 +576,28 @@ export default function AutomationsPage() {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                         </svg>
                       </button>
-                      <button
-                        onClick={() => handleDeleteSingle(automation.id)}
-                        className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Delete automation"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={automation.isActive}
-                          onChange={(e) => handleToggle(automation.id, e.target.checked)}
-                          className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
-                      </label>
+                      <PermissionGate permission={Permissions.AUTOMATIONS_DELETE}>
+                        <button
+                          onClick={() => handleDeleteSingle(automation.id)}
+                          className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Delete automation"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </PermissionGate>
+                      <PermissionGate permission={Permissions.AUTOMATIONS_UPDATE}>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={automation.isActive}
+                            onChange={(e) => handleToggle(automation.id, e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                        </label>
+                      </PermissionGate>
                     </div>
                   </div>
                 </div>
