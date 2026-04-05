@@ -4,11 +4,14 @@ import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/lib/store/auth';
 import { workspaceApi } from '@/lib/api/workspace';
 import { useRouter } from 'next/navigation';
+import { PermissionGate } from '@/components/PermissionGate';
+import { usePermissions, Permissions } from '@/lib/hooks/usePermissions';
 import toast from 'react-hot-toast';
 
 export default function WorkspaceSettingsPage() {
   const router = useRouter();
   const { currentWorkspace, workspaces, setCurrentWorkspace } = useAuthStore();
+  const { role, isOwner, isAdmin } = usePermissions();
   const [loading, setLoading] = useState(false);
   const [workspaceName, setWorkspaceName] = useState('');
   const [workspaceSlug, setWorkspaceSlug] = useState('');
@@ -102,8 +105,19 @@ export default function WorkspaceSettingsPage() {
         >
           ← Back to Settings
         </button>
-        <h1 className="text-3xl font-bold text-gray-800">Workspace Settings</h1>
-        <p className="text-gray-600 mt-2">Manage your workspace information and preferences</p>
+        <div className="flex items-center gap-3 mb-2">
+          <h1 className="text-3xl font-bold text-gray-800">Workspace Settings</h1>
+          <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${
+            role === 'owner' ? 'bg-purple-100 text-purple-800' :
+            role === 'admin' ? 'bg-blue-100 text-blue-800' :
+            role === 'manager' ? 'bg-green-100 text-green-800' :
+            role === 'agent' ? 'bg-orange-100 text-orange-800' :
+            'bg-gray-100 text-gray-800'
+          }`}>
+            {role}
+          </span>
+        </div>
+        <p className="text-gray-600">Manage your workspace information and preferences</p>
       </div>
 
       {/* Workspace Information Card */}
@@ -146,12 +160,19 @@ export default function WorkspaceSettingsPage() {
           ) : (
             <div className="flex items-center justify-between">
               <span className="text-gray-900 text-lg">{workspaceName}</span>
-              <button
-                onClick={() => setIsEditing(true)}
-                className="text-sm text-blue-600 hover:text-blue-700"
+              <PermissionGate 
+                permission={Permissions.WORKSPACE_UPDATE}
+                fallback={
+                  <span className="text-xs text-gray-500 italic">Owner/Admin only</span>
+                }
               >
-                Edit
-              </button>
+                <button
+                  onClick={() => setIsEditing(true)}
+                  className="text-sm text-blue-600 hover:text-blue-700"
+                >
+                  Edit
+                </button>
+              </PermissionGate>
             </div>
           )}
         </div>

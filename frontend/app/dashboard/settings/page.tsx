@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/lib/store/auth';
 import { settingsApi } from '@/lib/api/settings';
 import { getOAuthInstallUrl, getOAuthStatus, disconnectOAuth } from '@/lib/api/shopify-oauth';
+import { PermissionGate } from '@/components/PermissionGate';
+import { usePermissions, Permissions } from '@/lib/hooks/usePermissions';
 import toast from 'react-hot-toast';
 
 interface WhatsAppIntegration {
@@ -38,6 +40,7 @@ interface ShopifyStore {
 
 export default function SettingsPage() {
   const { token } = useAuthStore();
+  const { role, isOwner, isAdmin, hasPermission } = usePermissions();
   const [activeTab, setActiveTab] = useState<'whatsapp' | 'shopify'>('whatsapp');
 
   // WhatsApp state
@@ -505,8 +508,19 @@ export default function SettingsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Settings</h1>
-          <p className="text-sm sm:text-base text-slate-600 mt-2">Manage your integrations and configurations</p>
+          <div className="flex items-center gap-3 mb-2">
+            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Settings</h1>
+            <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${
+              role === 'owner' ? 'bg-purple-100 text-purple-800' :
+              role === 'admin' ? 'bg-blue-100 text-blue-800' :
+              role === 'manager' ? 'bg-green-100 text-green-800' :
+              role === 'agent' ? 'bg-orange-100 text-orange-800' :
+              'bg-gray-100 text-gray-800'
+            }`}>
+              {role}
+            </span>
+          </div>
+          <p className="text-sm sm:text-base text-slate-600">Manage your integrations and configurations</p>
         </div>
         <button
           onClick={() => window.location.href = '/dashboard/settings/workspace'}
@@ -622,11 +636,12 @@ export default function SettingsPage() {
                     </svg>
                     Token Health Status
                   </h4>
-                  <button
-                    onClick={handleHealthCheck}
-                    disabled={isHealthChecking}
-                    className="px-3 py-1.5 bg-primary-500 hover:bg-primary-600 text-white text-xs font-semibold rounded-lg transition-all disabled:bg-gray-400 flex items-center gap-1.5 shadow-sm hover:shadow-md"
-                  >
+                  <PermissionGate permission={Permissions.SETTINGS_VIEW}>
+                    <button
+                      onClick={handleHealthCheck}
+                      disabled={isHealthChecking}
+                      className="px-3 py-1.5 bg-primary-500 hover:bg-primary-600 text-white text-xs font-semibold rounded-lg transition-all disabled:bg-gray-400 flex items-center gap-1.5 shadow-sm hover:shadow-md"
+                    >
                     {isHealthChecking ? (
                       <>
                         <svg className="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
@@ -701,17 +716,19 @@ export default function SettingsPage() {
 
               {/* Actions */}
               <div className="flex gap-2">
-                <button
-                  onClick={handleDeleteWhatsApp}
-                  className="px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg font-medium transition-colors border border-red-200 shadow-sm hover:shadow-md"
-                >
-                  <span className="flex items-center gap-2">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                    Disconnect WhatsApp
-                  </span>
-                </button>
+                <PermissionGate permission={Permissions.INTEGRATIONS_DISCONNECT}>
+                  <button
+                    onClick={handleDeleteWhatsApp}
+                    className="px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg font-medium transition-colors border border-red-200 shadow-sm hover:shadow-md"
+                  >
+                    <span className="flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                      Disconnect WhatsApp
+                    </span>
+                  </button>
+                </PermissionGate>
               </div>
             </div>
           )}
@@ -847,25 +864,37 @@ export default function SettingsPage() {
             </div>
 
             <div className="pt-2">
-              <button
-                type="submit"
-                disabled={isWhatsappLoading}
-                className="w-full h-14 bg-primary-500 hover:bg-primary-600 active:bg-primary-700 text-white px-6 rounded-xl font-semibold transition-all disabled:bg-slate-400 disabled:cursor-not-allowed flex items-center justify-center shadow-sm hover:shadow-md"
-              >
-                {isWhatsappLoading ? (
-                  <>
-                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              <PermissionGate 
+                permission={Permissions.INTEGRATIONS_CONNECT}
+                fallback={
+                  <div className="w-full h-14 bg-gray-200 text-gray-600 px-6 rounded-xl font-semibold flex items-center justify-center">
+                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                     </svg>
-                    Saving...
-                  </>
-                ) : whatsappIntegration ? (
-                  'Update WhatsApp Configuration'
-                ) : (
-                  'Connect WhatsApp Business'
-                )}
-              </button>
+                    You need admin permissions to manage integrations
+                  </div>
+                }
+              >
+                <button
+                  type="submit"
+                  disabled={isWhatsappLoading}
+                  className="w-full h-14 bg-primary-500 hover:bg-primary-600 active:bg-primary-700 text-white px-6 rounded-xl font-semibold transition-all disabled:bg-slate-400 disabled:cursor-not-allowed flex items-center justify-center shadow-sm hover:shadow-md"
+                >
+                  {isWhatsappLoading ? (
+                    <>
+                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Saving...
+                    </>
+                  ) : whatsappIntegration ? (
+                    'Update WhatsApp Configuration'
+                  ) : (
+                    'Connect WhatsApp Business'
+                  )}
+                </button>
+              </PermissionGate>
             </div>
           </form>
 
@@ -1442,17 +1471,19 @@ export default function SettingsPage() {
                       Scopes: {shopifyStore.scopes?.split(',').join(', ')}
                     </p>
                   </div>
-                  <button
-                    onClick={handleOAuthDisconnect}
-                    className="px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg font-medium transition-colors border border-red-200 shadow-sm hover:shadow-md"
-                  >
-                    <span className="flex items-center gap-2">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                      Disconnect
-                    </span>
-                  </button>
+                  <PermissionGate permission={Permissions.INTEGRATIONS_DISCONNECT}>
+                    <button
+                      onClick={handleOAuthDisconnect}
+                      className="px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg font-medium transition-colors border border-red-200 shadow-sm hover:shadow-md"
+                    >
+                      <span className="flex items-center gap-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                        Disconnect
+                      </span>
+                    </button>
+                  </PermissionGate>
                 </div>
                 
                 {/* Webhook Registration Section */}
@@ -1549,17 +1580,19 @@ export default function SettingsPage() {
                       Using Client Credentials (tokens expire every 24h). Consider switching to OAuth for permanent access.
                     </p>
                   </div>
-                  <button
-                    onClick={handleDeleteShopify}
-                    className="px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg font-medium transition-colors border border-red-200 shadow-sm hover:shadow-md"
-                  >
-                    <span className="flex items-center gap-2">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                      Disconnect
-                    </span>
-                  </button>
+                  <PermissionGate permission={Permissions.INTEGRATIONS_DISCONNECT}>
+                    <button
+                      onClick={handleDeleteShopify}
+                      className="px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg font-medium transition-colors border border-red-200 shadow-sm hover:shadow-md"
+                    >
+                      <span className="flex items-center gap-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                        Disconnect
+                      </span>
+                    </button>
+                  </PermissionGate>
                 </div>
               </div>
             )}
@@ -1594,11 +1627,22 @@ export default function SettingsPage() {
                     disabled={isConnectingOAuth}
                   />
                   
-                  <button
-                    onClick={handleOAuthConnect}
-                    disabled={isConnectingOAuth || !oauthShopDomain}
-                    className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap"
+                  <PermissionGate 
+                    permission={Permissions.INTEGRATIONS_CONNECT}
+                    fallback={
+                      <div className="px-6 py-3 bg-gray-300 text-gray-600 rounded-lg font-semibold flex items-center gap-2 cursor-not-allowed">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                        </svg>
+                        Admin Only
+                      </div>
+                    }
                   >
+                    <button
+                      onClick={handleOAuthConnect}
+                      disabled={isConnectingOAuth || !oauthShopDomain}
+                      className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap"
+                    >
                     {isConnectingOAuth ? (
                       <>
                         <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
@@ -1616,9 +1660,10 @@ export default function SettingsPage() {
                       </>
                     )}
                   </button>
-                </div>
+                </PermissionGate>
+              </div>
 
-                <details className="text-sm">
+              <details className="text-sm">
                   <summary className="cursor-pointer text-slate-600 hover:text-slate-900 font-medium">
                     Advanced: Use manual credentials (legacy)
                   </summary>

@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/lib/store/auth';
 import { useRouter } from 'next/navigation';
 import { settingsApi } from '@/lib/api/settings';
+import { PermissionGate, RoleGate } from '@/components/PermissionGate';
+import { usePermissions, Permissions } from '@/lib/hooks/usePermissions';
 import toast from 'react-hot-toast';
 
 interface DeletedIntegration {
@@ -27,6 +29,7 @@ interface DataStats {
 export default function DataManagementPage() {
   const router = useRouter();
   const { token } = useAuthStore();
+  const { role, isOwner, isAdmin } = usePermissions();
   const [loading, setLoading] = useState(false);
   const [deletedIntegrations, setDeletedIntegrations] = useState<DeletedIntegration[]>([]);
   const [dataStats, setDataStats] = useState<DataStats>({
@@ -127,8 +130,19 @@ export default function DataManagementPage() {
         >
           ← Back to Workspace Settings
         </button>
-        <h1 className="text-3xl font-bold text-gray-800">Data Management</h1>
-        <p className="text-gray-600 mt-2">Manage your integrations and workspace data</p>
+        <div className="flex items-center gap-3 mb-2">
+          <h1 className="text-3xl font-bold text-gray-800">Data Management</h1>
+          <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${
+            role === 'owner' ? 'bg-purple-100 text-purple-800' :
+            role === 'admin' ? 'bg-blue-100 text-blue-800' :
+            role === 'manager' ? 'bg-green-100 text-green-800' :
+            role === 'agent' ? 'bg-orange-100 text-orange-800' :
+            'bg-gray-100 text-gray-800'
+          }`}>
+            {role}
+          </span>
+        </div>
+        <p className="text-gray-600">Manage your integrations and workspace data</p>
       </div>
 
       {/* Data Overview Card */}
@@ -217,13 +231,20 @@ export default function DataManagementPage() {
                   </div>
                   <div>
                     {integration.canRestore ? (
-                      <button
-                        onClick={() => handleRestore(integration)}
-                        disabled={loading}
-                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      <RoleGate 
+                        roles={['owner', 'admin']}
+                        fallback={
+                          <span className="text-xs text-gray-500 italic">Admin only</span>
+                        }
                       >
-                        Restore
-                      </button>
+                        <button
+                          onClick={() => handleRestore(integration)}
+                          disabled={loading}
+                          className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                          Restore
+                        </button>
+                      </RoleGate>
                     ) : (
                       <span className="text-sm text-red-600 font-medium">
                         Grace period expired
@@ -238,12 +259,29 @@ export default function DataManagementPage() {
       </div>
 
       {/* Data Cleanup Card */}
-      <div className="bg-white rounded-lg shadow-md border-2 border-orange-200 p-6 mb-6">
-        <h2 className="text-xl font-semibold text-orange-600 mb-2">Data Cleanup</h2>
-        <p className="text-gray-600 mb-4">
-          Permanently delete specific types of data from your workspace
-        </p>
-        <div className="space-y-3">
+      <PermissionGate 
+        permission={Permissions.WORKSPACE_DELETE}
+        fallback={
+          <div className="bg-gray-50 rounded-lg shadow-md border-2 border-gray-200 p-6 mb-6">
+            <h2 className="text-xl font-semibold text-gray-400 mb-2">Data Cleanup</h2>
+            <p className="text-gray-500 mb-4">
+              Owner-only feature: Permanently delete data from your workspace
+            </p>
+            <div className="flex items-center gap-2 text-gray-600">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+              <span className="text-sm">You need owner permissions to access this feature</span>
+            </div>
+          </div>
+        }
+      >
+        <div className="bg-white rounded-lg shadow-md border-2 border-orange-200 p-6 mb-6">
+          <h2 className="text-xl font-semibold text-orange-600 mb-2">Data Cleanup</h2>
+          <p className="text-gray-600 mb-4">
+            Permanently delete specific types of data from your workspace
+          </p>
+          <div className="space-y-3">
           <button
             onClick={() => {
               setDeleteType('messages');
@@ -268,8 +306,9 @@ export default function DataManagementPage() {
             <div className="font-semibold">Delete All Contacts</div>
             <div className="text-sm">
               This will delete {dataStats.contacts} contacts and their conversations
-            </div>
-          </button>
+    </PermissionGate>
+
+        </button>
           <button
             onClick={() => {
               setDeleteType('all');
