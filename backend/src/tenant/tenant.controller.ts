@@ -22,7 +22,7 @@ export class TenantController {
   ) {
     return this.tenantService.getWorkspaceMemberWithPermissions(
       workspaceId,
-      req.user.userId,
+      req.user.sub, // JWT payload uses 'sub' for user ID
     );
   }
 

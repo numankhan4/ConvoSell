@@ -306,8 +306,7 @@ export default function DataManagementPage() {
             <div className="font-semibold">Delete All Contacts</div>
             <div className="text-sm">
               This will delete {dataStats.contacts} contacts and their conversations
-    </PermissionGate>
-
+            </div>
         </button>
           <button
             onClick={() => {
@@ -324,6 +323,7 @@ export default function DataManagementPage() {
           </button>
         </div>
       </div>
+      </PermissionGate>
 
       {/* Export Data Card */}
       <div className="bg-white rounded-lg shadow-md p-6">

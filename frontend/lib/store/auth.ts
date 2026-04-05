@@ -146,6 +146,7 @@ export const useAuthStore = create<AuthState>()(
       },
 
       setCurrentWorkspace: (workspace: Workspace) => {
+        set({ currentWorkspace: workspace });
         // Fetch workspace member permissions when workspace changes
         get().fetchWorkspaceMember();
       },
@@ -158,9 +159,12 @@ export const useAuthStore = create<AuthState>()(
 
         try {
           const response = await axios.get(
-            `${API_URL}/workspaces/${currentWorkspace.id}/members/me`,
+            `${API_URL}/workspace/members/me`,
             {
-              headers: { Authorization: `Bearer ${token}` }
+              headers: { 
+                Authorization: `Bearer ${token}`,
+                'x-workspace-id': currentWorkspace.id
+              }
             }
           );
           
@@ -168,7 +172,6 @@ export const useAuthStore = create<AuthState>()(
         } catch (error) {
           console.error('Failed to fetch workspace member:', error);
         }
-        set({ currentWorkspace: workspace });
       },
 
       fetchProfile: async () => {

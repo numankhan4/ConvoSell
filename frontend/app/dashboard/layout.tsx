@@ -14,7 +14,7 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const router =useRouter();
+  const router = useRouter();
   const { isAuthenticated, isInitialized, user, currentWorkspace, logout, initialize } = useAuthStore();
   const { role } = usePermissions();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -84,9 +84,9 @@ export default function DashboardLayout({
               className="w-10 h-10"
             />
             <div className="min-w-0 flex-1">
-              <h1 class="flex items-center font-semibold text-[15px] sm:text-base leading-none max-w-[130px] whitespace-nowrap">
-  <span class="text-slate-900">Convo</span>
-  <span class="text-success-600">Sell</span>
+              <h1 className="flex items-center font-semibold text-[15px] sm:text-base leading-none max-w-[130px] whitespace-nowrap">
+  <span className="text-slate-900">Convo</span>
+  <span className="text-success-600">Sell</span>
 </h1>
               <p className="text-xs text-slate-500 truncate">{currentWorkspace?.name || 'Workspace'}</p>
             </div>
@@ -126,6 +126,7 @@ export default function DashboardLayout({
               <div className="flex-1 min-w-0">
                 <p className="text-xs sm:text-sm font-medium text-slate-900 truncate">
                   {user?.firstName} {user?.lastName}
+                </p>
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <p className="text-xs text-slate-500 truncate">{user?.email}</p>
                   <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase flex-shrink-0 ${
@@ -137,8 +138,7 @@ export default function DashboardLayout({
                   }`}>
                     {role}
                   </span>
-                </div
-                <p className="text-xs text-slate-500 truncate">{user?.email}</p>
+                </div>
               </div>
             </div>
           </div>
