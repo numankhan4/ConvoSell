@@ -2,10 +2,13 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { ordersApi, automationsApi } from '@/lib/api';
+import { PermissionGate } from '@/components/PermissionGate';
+import { usePermissions, Permissions } from '@/lib/hooks/usePermissions';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 
 export default function OrdersPage() {
+  const { role } = usePermissions();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
@@ -166,8 +169,19 @@ export default function OrdersPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Orders</h1>
-          <p className="text-sm sm:text-base text-slate-600 mt-1">Track and manage your customer orders</p>
+          <div className="flex items-center gap-3 mb-1">
+            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Orders</h1>
+            <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${
+              role === 'owner' ? 'bg-purple-100 text-purple-800' :
+              role === 'admin' ? 'bg-blue-100 text-blue-800' :
+              role === 'manager' ? 'bg-green-100 text-green-800' :
+              role === 'agent' ? 'bg-orange-100 text-orange-800' :
+              'bg-gray-100 text-gray-800'
+            }`}>
+              {role}
+            </span>
+          </div>
+          <p className="text-sm sm:text-base text-slate-600">Track and manage your customer orders</p>
         </div>
       </div>
 
@@ -375,24 +389,36 @@ export default function OrdersPage() {
                     )}
                   </div>
                 </div>
-                <button
-                  onClick={() => {
-                    setSelectedOrder(order);
-                    setShowTriggerModal(true);
-                  }}
-                  disabled={!canSendConfirmation(order)}
-                  className={`mt-3 w-full inline-flex items-center justify-center px-3 py-2 text-sm rounded-lg transition-colors ${
-                    canSendConfirmation(order)
-                      ? 'bg-primary-600 text-white hover:bg-primary-700'
-                      : 'bg-slate-200 text-slate-500 cursor-not-allowed'
-                  }`}
-                  title={canSendConfirmation(order) ? (order.confirmationSentAt ? 'Resend confirmation' : 'Send confirmation') : getDisabledReason(order)}
+                <PermissionGate 
+                  permission={Permissions.ORDERS_CONFIRM}
+                  fallback={
+                    <div className="mt-3 w-full inline-flex items-center justify-center px-3 py-2 text-sm rounded-lg bg-gray-200 text-gray-600 cursor-not-allowed">
+                      <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                      </svg>
+                      Confirmation Restricted
+                    </div>
+                  }
                 >
-                  <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                  {order.confirmationSentAt ? 'Resend Confirmation' : 'Send Confirmation'}
-                </button>
+                  <button
+                    onClick={() => {
+                      setSelectedOrder(order);
+                      setShowTriggerModal(true);
+                    }}
+                    disabled={!canSendConfirmation(order)}
+                    className={`mt-3 w-full inline-flex items-center justify-center px-3 py-2 text-sm rounded-lg transition-colors ${
+                      canSendConfirmation(order)
+                        ? 'bg-primary-600 text-white hover:bg-primary-700'
+                        : 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                    }`}
+                    title={canSendConfirmation(order) ? (order.confirmationSentAt ? 'Resend confirmation' : 'Send confirmation') : getDisabledReason(order)}
+                  >
+                    <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    {order.confirmationSentAt ? 'Resend Confirmation' : 'Send Confirmation'}
+                  </button>
+                </PermissionGate>
               </div>
             ))}
           </div>
@@ -554,24 +580,36 @@ export default function OrdersPage() {
                       {new Date(order.createdAt).toLocaleDateString()}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
-                      <button
-                        onClick={() => {
-                          setSelectedOrder(order);
-                          setShowTriggerModal(true);
-                        }}
-                        disabled={!canSendConfirmation(order)}
-                        className={`inline-flex items-center px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                          canSendConfirmation(order)
-                            ? 'bg-primary-600 text-white hover:bg-primary-700'
-                            : 'bg-slate-200 text-slate-500 cursor-not-allowed'
-                        }`}
-                        title={canSendConfirmation(order) ? (order.confirmationSentAt ? 'Resend confirmation' : 'Send confirmation') : getDisabledReason(order)}
+                      <PermissionGate 
+                        permission={Permissions.ORDERS_CONFIRM}
+                        fallback={
+                          <span className="inline-flex items-center px-3 py-1.5 text-sm rounded-lg bg-gray-200 text-gray-600 cursor-not-allowed">
+                            <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                            </svg>
+                            Restricted
+                          </span>
+                        }
                       >
-                        <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                        </svg>
-                        {order.confirmationSentAt ? 'Resend' : 'Send'}
-                      </button>
+                        <button
+                          onClick={() => {
+                            setSelectedOrder(order);
+                            setShowTriggerModal(true);
+                          }}
+                          disabled={!canSendConfirmation(order)}
+                          className={`inline-flex items-center px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                            canSendConfirmation(order)
+                              ? 'bg-primary-600 text-white hover:bg-primary-700'
+                              : 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                          }`}
+                          title={canSendConfirmation(order) ? (order.confirmationSentAt ? 'Resend confirmation' : 'Send confirmation') : getDisabledReason(order)}
+                        >
+                          <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                          </svg>
+                          {order.confirmationSentAt ? 'Resend' : 'Send'}
+                        </button>
+                      </PermissionGate>
                     </td>
                   </tr>
                 ))}
