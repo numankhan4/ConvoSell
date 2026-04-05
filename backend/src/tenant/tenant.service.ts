@@ -1,9 +1,13 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { PermissionService } from '../common/services/permission.service';
 
 @Injectable()
 export class TenantService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private permissionService: PermissionService,
+  ) {}
 
   /**
    * Get workspace details
@@ -98,5 +102,37 @@ export class TenantService {
         },
       },
     });
+  }
+
+  /**
+   * Get workspace member with permissions
+   */
+  async getWorkspaceMemberWithPermissions(
+    workspaceId: string,
+    userId: string,
+  ) {
+    const member = await this.prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId,
+          userId,
+        },
+      },
+    });
+
+    if (!member) {
+      throw new NotFoundException('Workspace member not found');
+    }
+
+    // Get permissions for the member
+    const permissions = await this.permissionService.getUserPermissions(
+      userId,
+      workspaceId,
+    );
+
+    return {
+      ...member,
+      permissions,
+    };
   }
 }

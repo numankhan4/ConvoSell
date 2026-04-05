@@ -5,6 +5,7 @@ import { BullModule } from '@nestjs/bullmq';
 
 // Core modules
 import { PrismaModule } from './common/prisma/prisma.module';
+import { CommonModule } from './common/common.module';
 import { HealthCheckModule } from './common/health/health-check.module';
 import { AuthModule } from './auth/auth.module';
 import { TenantModule } from './tenant/tenant.module';
@@ -47,6 +48,7 @@ import { TemplatesModule } from './templates/templates.module';
 
     // Core infrastructure
     PrismaModule,
+    CommonModule,
     HealthCheckModule,
 
     // Feature modules

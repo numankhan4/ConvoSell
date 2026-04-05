@@ -21,6 +21,21 @@ model User {
   firstName String?
   lastName  String?
   isActive  Boolean  @default(true)
+  
+  // Platform-level role (for super admins)
+  platformRole String  @default("user") // user, super_admin
+  isSuperAdmin Boolean @default(false)
+  
+  // Profile enhancements
+  avatar       String?
+  phone        String?
+  timezone     String?  @default("Asia/Karachi")
+  language     String?  @default("en")
+  
+  // Security
+  emailVerified Boolean  @default(false)
+  lastLoginAt   DateTime?
+  
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -79,7 +94,18 @@ model WorkspaceMember {
   id          String   @id @default(cuid())
   workspaceId String
   userId      String
-  role        String   @default("agent") // owner, admin, agent, viewer
+  
+  // Enhanced role system: owner, admin, manager, agent, viewer
+  role        String   @default("agent")
+  
+  // Custom permissions override (JSON array of permission strings)
+  customPermissions Json?  @default("[]")
+  
+  // Invitation tracking
+  invitedBy   String?  // User ID who invited
+  invitedAt   DateTime @default(now())
+  joinedAt    DateTime?
+  
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -89,7 +115,34 @@ model WorkspaceMember {
 
   @@unique([workspaceId, userId])
   @@index([userId])
+  @@index([role])
   @@map("workspace_members")
+}
+
+model TeamInvitation {
+  id          String   @id @default(cuid())
+  workspaceId String
+  email       String
+  role        String   @default("agent") // Role to assign when accepted
+  invitedBy   String   // User ID of inviter
+  
+  // Secure invitation token
+  token       String   @unique
+  expiresAt   DateTime
+  
+  // Invitation status
+  status      String   @default("pending") // pending, accepted, expired, cancelled
+  acceptedAt  DateTime?
+  acceptedBy  String?  // User ID who accepted
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([workspaceId, email])
+  @@index([token])
+  @@index([status])
+  @@index([expiresAt])
+  @@map("team_invitations")
 }
 
 // ============================================================

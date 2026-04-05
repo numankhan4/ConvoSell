@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Post, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Patch, Post, Delete, Body, Param, UseGuards, Request } from '@nestjs/common';
 import { TenantService } from './tenant.service';
 import { WorkspaceId } from '../common/decorators/user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -13,6 +13,17 @@ export class TenantController {
   @Get()
   getWorkspace(@WorkspaceId() workspaceId: string) {
     return this.tenantService.getWorkspace(workspaceId);
+  }
+
+  @Get('members/me')
+  getMyWorkspaceMember(
+    @WorkspaceId() workspaceId: string,
+    @Request() req: any,
+  ) {
+    return this.tenantService.getWorkspaceMemberWithPermissions(
+      workspaceId,
+      req.user.userId,
+    );
   }
 
   @Patch()

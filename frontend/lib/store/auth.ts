@@ -9,6 +9,9 @@ interface User {
   email: string;
   firstName?: string;
   lastName?: string;
+  isSuperAdmin?: boolean;
+  avatar?: string;
+  phone?: string;
 }
 
 interface Workspace {
@@ -18,10 +21,19 @@ interface Workspace {
   plan: string;
 }
 
+interface WorkspaceMember {
+  id: string;
+  role: string;
+  permissions?: string[];
+  userId: string;
+  workspaceId: string;
+}
+
 interface AuthState {
   user: User | null;
   workspaces: Workspace[];
   currentWorkspace: Workspace | null;
+  currentWorkspaceMember: WorkspaceMember | null;
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
@@ -31,6 +43,7 @@ interface AuthState {
   logout: () => void;
   setCurrentWorkspace: (workspace: Workspace) => void;
   fetchProfile: () => Promise<void>;
+  fetchWorkspaceMember: () => Promise<void>;
   initialize: () => Promise<void>;
 }
 
@@ -40,6 +53,7 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       workspaces: [],
       currentWorkspace: null,
+      currentWorkspaceMember: null,
       token: null,
       isAuthenticated: false,
       isLoading: false,
@@ -70,6 +84,9 @@ export const useAuthStore = create<AuthState>()(
             isAuthenticated: true,
             isInitialized: true,
           });
+
+          // Fetch workspace member permissions after successful initialization
+          await get().fetchWorkspaceMember();
         } catch (error) {
           // Token is invalid, clear auth state
           console.error('Token validation failed:', error);
@@ -116,6 +133,7 @@ export const useAuthStore = create<AuthState>()(
 
       logout: () => {
         set({
+          currentWorkspaceMember: null,
           user: null,
           workspaces: [],
           currentWorkspace: null,
@@ -128,6 +146,28 @@ export const useAuthStore = create<AuthState>()(
       },
 
       setCurrentWorkspace: (workspace: Workspace) => {
+        // Fetch workspace member permissions when workspace changes
+        get().fetchWorkspaceMember();
+      },
+
+      fetchWorkspaceMember: async () => {
+        const token = get().token;
+        const currentWorkspace = get().currentWorkspace;
+        
+        if (!token || !currentWorkspace) return;
+
+        try {
+          const response = await axios.get(
+            `${API_URL}/workspaces/${currentWorkspace.id}/members/me`,
+            {
+              headers: { Authorization: `Bearer ${token}` }
+            }
+          );
+          
+          set({ currentWorkspaceMember: response.data });
+        } catch (error) {
+          console.error('Failed to fetch workspace member:', error);
+        }
         set({ currentWorkspace: workspace });
       },
 
@@ -147,6 +187,9 @@ export const useAuthStore = create<AuthState>()(
             currentWorkspace: get().currentWorkspace || workspaces[0],
             isAuthenticated: true,
           });
+
+          // Fetch workspace member permissions after profile fetch
+          await get().fetchWorkspaceMember();
         } catch (error) {
           get().logout();
         }
