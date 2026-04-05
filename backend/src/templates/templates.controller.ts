@@ -11,12 +11,13 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { TenantGuard } from '../common/guards/tenant.guard';
 import { WorkspaceId } from '../common/decorators/user.decorator';
 import { TemplatesService } from './templates.service';
 import { CreateTemplateDto, UpdateTemplateDto, SendTemplateDto } from './dto/template.dto';
 
-@Controller('api/templates')
-@UseGuards(JwtAuthGuard)
+@Controller('templates')
+@UseGuards(JwtAuthGuard, TenantGuard)
 export class TemplatesController {
   constructor(private readonly templatesService: TemplatesService) {}
 

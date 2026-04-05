@@ -174,9 +174,130 @@ export class AuthService {
   /**
    * Generate JWT token
    */
-  private generateToken(userId: string, email: string, workspaceId: string): string {
-    const payload = { sub: userId, email, workspaceId };
+  private generateToken(userId: string, email: string, workspaceId: string, originalUserId?: string): string {
+    const payload: any = { sub: userId, email, workspaceId };
+    
+    // Add original user ID if impersonating
+    if (originalUserId) {
+      payload.originalUserId = originalUserId;
+      payload.isImpersonating = true;
+    }
+    
     return this.jwtService.sign(payload);
+  }
+
+  /**
+   * Impersonate another user
+   */
+  async impersonate(currentUserId: string, workspaceId: string, targetUserId: string) {
+    // Verify both users are in the same workspace
+    const targetMember = await this.prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId,
+          userId: targetUserId,
+        },
+      },
+      include: {
+        user: true,
+      },
+    });
+
+    if (!targetMember || !targetMember.isActive) {
+      throw new UnauthorizedException('Target user not found in workspace');
+    }
+
+    // Generate token with impersonation info
+    const token = this.generateToken(
+      targetUserId,
+      targetMember.user.email,
+      workspaceId,
+      currentUserId, // Store original user ID
+    );
+
+    return {
+      user: this.sanitizeUser(targetMember.user),
+      role: targetMember.role,
+      accessToken: token,
+      isImpersonating: true,
+      originalUserId: currentUserId,
+    };
+  }
+
+  /**
+   * Stop impersonating and return to original user
+   */
+  async stopImpersonation(tokenPayload: any) {
+    if (!tokenPayload.isImpersonating || !tokenPayload.originalUserId) {
+      throw new BadRequestException('Not currently impersonating');
+    }
+
+    const originalUserId = tokenPayload.originalUserId;
+    const workspaceId = tokenPayload.workspaceId;
+
+    // Get original user
+    const member = await this.prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId,
+          userId: originalUserId,
+        },
+      },
+      include: {
+        user: true,
+      },
+    });
+
+    if (!member) {
+      throw new UnauthorizedException('Original user not found');
+    }
+
+    // Generate regular token for original user
+    const token = this.generateToken(
+      originalUserId,
+      member.user.email,
+      workspaceId,
+    );
+
+    return {
+      user: this.sanitizeUser(member.user),
+      role: member.role,
+      accessToken: token,
+      isImpersonating: false,
+    };
+  }
+
+  /**
+   * Get all users in workspace
+   */
+  async getWorkspaceUsers(workspaceId: string) {
+    const members = await this.prisma.workspaceMember.findMany({
+      where: {
+        workspaceId,
+        isActive: true,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            isActive: true,
+            createdAt: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'asc',
+      },
+    });
+
+    return members.map((member) => ({
+      ...member.user,
+      role: member.role,
+      workspaceMemberId: member.id,
+    }));
   }
 
   /**

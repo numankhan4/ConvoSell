@@ -8,6 +8,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import HealthStatusBanner from '@/components/HealthStatusBanner';
 import { LoadingScreen } from '@/components/LoadingScreen';
+import UserSwitcher from '@/components/UserSwitcher';
 
 export default function DashboardLayout({
   children,
@@ -15,7 +16,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const { isAuthenticated, isInitialized, user, currentWorkspace, logout, initialize } = useAuthStore();
+  const { isAuthenticated, isInitialized, user, currentWorkspace, logout, initialize, isImpersonating } = useAuthStore();
   const { role } = usePermissions();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -142,6 +143,12 @@ export default function DashboardLayout({
               </div>
             </div>
           </div>
+          
+          {/* User Switcher Component */}
+          <div className="mt-2">
+            <UserSwitcher />
+          </div>
+
           <button
             onClick={logout}
             className="w-full mt-2 px-3 sm:px-4 py-2 text-xs sm:text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center justify-center space-x-2"
@@ -157,6 +164,26 @@ export default function DashboardLayout({
       {/* Main content */}
       <main className="flex-1 overflow-y-auto lg:ml-0">
         <HealthStatusBanner />
+        
+        {/* Impersonation Banner */}
+        {isImpersonating && (
+          <div className="bg-gradient-to-r from-orange-500 to-red-500 text-white px-4 py-3 shadow-lg">
+            <div className="container mx-auto flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <span className="font-semibold text-sm">
+                  Viewing as: {user?.firstName} {user?.lastName} ({role})
+                </span>
+              </div>
+              <p className="text-xs opacity-90 hidden sm:block">
+                You are testing with another user's permissions
+              </p>
+            </div>
+          </div>
+        )}
+        
         <div className="container mx-auto p-4 sm:p-6 lg:p-8 pt-16 lg:pt-8">{children}</div>
       </main>
     </div>

@@ -89,40 +89,27 @@ export default function WorkspaceSettingsPage() {
 
   if (loading && !workspaceName) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex items-center justify-center py-12">
         <div className="text-gray-600">Loading workspace settings...</div>
       </div>
     );
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-4xl">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="mb-8">
-        <button
-          onClick={() => router.push('/dashboard/settings')}
-          className="text-sm text-blue-600 hover:text-blue-700 mb-4 flex items-center"
-        >
-          ← Back to Settings
-        </button>
-        <div className="flex items-center gap-3 mb-2">
-          <h1 className="text-3xl font-bold text-gray-800">Workspace Settings</h1>
-          <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${
-            role === 'owner' ? 'bg-purple-100 text-purple-800' :
-            role === 'admin' ? 'bg-blue-100 text-blue-800' :
-            role === 'manager' ? 'bg-green-100 text-green-800' :
-            role === 'agent' ? 'bg-orange-100 text-orange-800' :
-            'bg-gray-100 text-gray-800'
-          }`}>
-            {role}
-          </span>
-        </div>
-        <p className="text-gray-600">Manage your workspace information and preferences</p>
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          Workspace Settings
+        </h1>
+        <p className="text-gray-600 mt-1">
+          Manage your workspace information and preferences
+        </p>
       </div>
 
       {/* Workspace Information Card */}
-      <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-        <h2 className="text-xl font-semibold text-gray-800 mb-4">Workspace Information</h2>
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+        <h2 className="text-lg font-semibold text-gray-800 mb-4">Workspace Information</h2>
         
         {/* Workspace Name */}
         <div className="mb-6">

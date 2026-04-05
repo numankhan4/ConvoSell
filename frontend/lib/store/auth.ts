@@ -38,6 +38,9 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   isInitialized: boolean;
+  isImpersonating: boolean;
+  originalUserId: string | null;
+  workspaceUsers: User[];
   login: (email: string, password: string) => Promise<void>;
   register: (data: any) => Promise<void>;
   logout: () => void;
@@ -45,6 +48,9 @@ interface AuthState {
   fetchProfile: () => Promise<void>;
   fetchWorkspaceMember: () => Promise<void>;
   initialize: () => Promise<void>;
+  impersonateUser: (userId: string) => Promise<void>;
+  stopImpersonation: () => Promise<void>;
+  fetchWorkspaceUsers: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -58,6 +64,9 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
       isLoading: false,
       isInitialized: false,
+      isImpersonating: false,
+      originalUserId: null,
+      workspaceUsers: [],
 
       initialize: async () => {
         const token = get().token;
@@ -113,6 +122,9 @@ export const useAuthStore = create<AuthState>()(
 
         // Set default axios header
         axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
+        
+        // Fetch workspace member role after login
+        await get().fetchWorkspaceMember();
       },
 
       register: async (data: any) => {
@@ -129,6 +141,9 @@ export const useAuthStore = create<AuthState>()(
         });
 
         axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
+        
+        // Fetch workspace member role after registration
+        await get().fetchWorkspaceMember();
       },
 
       logout: () => {
@@ -197,6 +212,158 @@ export const useAuthStore = create<AuthState>()(
           get().logout();
         }
       },
+
+      impersonateUser: async (userId: string) => {
+        const token = get().token;
+        if (!token) return;
+
+        try {
+          set({ isLoading: true });
+          
+          // Store original auth state in localStorage before impersonation
+          const originalState = {
+            token: get().token,
+            user: get().user,
+            workspaces: get().workspaces,
+            currentWorkspace: get().currentWorkspace,
+            currentWorkspaceMember: get().currentWorkspaceMember,
+          };
+          localStorage.setItem('originalAuthState', JSON.stringify(originalState));
+          
+          const response = await axios.post(
+            `${API_URL}/auth/impersonate/${userId}`,
+            {},
+            {
+              headers: { 
+                Authorization: `Bearer ${token}`,
+                'x-workspace-id': get().currentWorkspace?.id
+              }
+            }
+          );
+
+          const { user, role, accessToken, isImpersonating, originalUserId } = response.data;
+
+          set({
+            user,
+            token: accessToken,
+            isImpersonating,
+            originalUserId,
+            isLoading: false,
+          });
+
+          // Update axios header with new token
+          axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
+
+          // Fetch new user's permissions
+          await get().fetchWorkspaceMember();
+        } catch (error) {
+          console.error('Failed to impersonate user:', error);
+          set({ isLoading: false });
+          throw error;
+        }
+      },
+
+      stopImpersonation: async () => {
+        const token = get().token;
+        const currentWorkspace = get().currentWorkspace;
+        
+        // Try to restore from localStorage first (for non-owner roles)
+        const originalStateJson = localStorage.getItem('originalAuthState');
+        if (originalStateJson) {
+          try {
+            const originalState = JSON.parse(originalStateJson);
+            
+            set({
+              user: originalState.user,
+              token: originalState.token,
+              workspaces: originalState.workspaces,
+              currentWorkspace: originalState.currentWorkspace,
+              currentWorkspaceMember: originalState.currentWorkspaceMember,
+              isImpersonating: false,
+              originalUserId: null,
+              isLoading: false,
+            });
+
+            // Update axios header with original token
+            axios.defaults.headers.common['Authorization'] = `Bearer ${originalState.token}`;
+            
+            // Clean up localStorage
+            localStorage.removeItem('originalAuthState');
+            
+            // Fetch workspace member to ensure sync
+            await get().fetchWorkspaceMember();
+            
+            return;
+          } catch (parseError) {
+            console.error('Failed to restore from localStorage:', parseError);
+            // Fall through to API call
+          }
+        }
+
+        // Fallback to API call if localStorage restore fails or doesn't exist
+        if (!token) return;
+
+        try {
+          set({ isLoading: true });
+
+          const response = await axios.post(
+            `${API_URL}/auth/stop-impersonation`,
+            {},
+            {
+              headers: { 
+                Authorization: `Bearer ${token}`,
+                'x-workspace-id': currentWorkspace?.id
+              }
+            }
+          );
+
+          const { user, role, accessToken } = response.data;
+
+          set({
+            user,
+            token: accessToken,
+            isImpersonating: false,
+            originalUserId: null,
+            isLoading: false,
+          });
+
+          // Update axios header with original token
+          axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
+          
+          // Clean up localStorage
+          localStorage.removeItem('originalAuthState');
+
+          // Fetch original user's permissions
+          await get().fetchWorkspaceMember();
+        } catch (error) {
+          console.error('Failed to stop impersonation:', error);
+          set({ isLoading: false });
+          throw error;
+        }
+      },
+
+      fetchWorkspaceUsers: async () => {
+        const token = get().token;
+        const currentWorkspace = get().currentWorkspace;
+        
+        if (!token || !currentWorkspace) return;
+
+        try {
+          const response = await axios.get(
+            `${API_URL}/auth/workspace-users`,
+            {
+              headers: { 
+                Authorization: `Bearer ${token}`,
+                'x-workspace-id': currentWorkspace.id
+              }
+            }
+          );
+          
+          set({ workspaceUsers: response.data });
+        } catch (error) {
+          console.error('Failed to fetch workspace users:', error);
+        }
+      },
     }),
     {
       name: 'auth-storage',
@@ -206,6 +373,8 @@ export const useAuthStore = create<AuthState>()(
         currentWorkspace: state.currentWorkspace,
         token: state.token,
         isAuthenticated: state.isAuthenticated,
+        isImpersonating: state.isImpersonating,
+        originalUserId: state.originalUserId,
       }),
     }
   )

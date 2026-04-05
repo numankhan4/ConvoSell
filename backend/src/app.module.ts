@@ -19,6 +19,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
 import { JobsModule } from './jobs/jobs.module';
 import { SettingsModule } from './settings/settings.module';
 import { TemplatesModule } from './templates/templates.module';
+import { TestDataModule } from './test-data/test-data.module';
 
 @Module({
   imports: [
@@ -64,6 +65,7 @@ import { TemplatesModule } from './templates/templates.module';
     JobsModule,
     SettingsModule,
     TemplatesModule,
+    TestDataModule,
   ],
 })
 export class AppModule {}

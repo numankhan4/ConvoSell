@@ -77,6 +77,10 @@ export enum Permission {
   SETTINGS_VIEW = 'settings:view',
   SETTINGS_UPDATE = 'settings:update',
   SETTINGS_WEBHOOKS = 'settings:webhooks',
+  
+  // Testing & Development
+  USERS_IMPERSONATE = 'users:impersonate', // Switch to another user for testing
+  USERS_VIEW_ALL = 'users:view_all', // View all workspace users
 }
 
 /**
@@ -153,6 +157,10 @@ export const ROLE_PERMISSIONS: Record<WorkspaceRole, Permission[]> = {
     Permission.SETTINGS_VIEW,
     Permission.SETTINGS_UPDATE,
     Permission.SETTINGS_WEBHOOKS,
+    
+    // Testing & Development
+    Permission.USERS_IMPERSONATE,
+    Permission.USERS_VIEW_ALL,
   ],
 
   /**

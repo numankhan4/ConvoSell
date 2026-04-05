@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { toast } from 'react-hot-toast';
-import { api } from '@/lib/api';
+import api from '@/lib/api';
 import { PermissionGate } from '@/components/PermissionGate';
 import { usePermissions, Permissions } from '@/lib/hooks/usePermissions';
 
