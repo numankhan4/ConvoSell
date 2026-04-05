@@ -96,6 +96,10 @@ model WhatsAppIntegration {
   healthStatus      String   @default("unknown") // healthy, warning, error, unknown
   healthError       String? // Last error message if any
   
+  // Soft delete (for 30-day grace period)
+  deletedAt         DateTime? // When user disconnected
+  deletedBy         String?   // User ID who disconnected
+  
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -131,6 +135,14 @@ model ShopifyStore {
   isActive      Boolean  @default(true)
   installedAt   DateTime @default(now())
   lastSyncAt    DateTime?
+  
+  // Multi-store support
+  label         String? // "Main Store", "Wholesale", etc.
+  
+  // Soft delete (for 90-day grace period - longer for business records)
+  deletedAt     DateTime? // When user disconnected
+  deletedBy     String?   // User ID who disconnected
+  
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

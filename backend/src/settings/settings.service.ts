@@ -25,7 +25,10 @@ export class SettingsService {
 
   async getWhatsAppIntegration(workspaceId: string) {
     const integration = await this.prisma.whatsAppIntegration.findFirst({
-      where: { workspaceId },
+      where: { 
+        workspaceId,
+        deletedAt: null, // Exclude disconnected integrations
+      },
       select: {
         id: true,
         phoneNumberId: true,
@@ -240,6 +243,104 @@ export class SettingsService {
     return { message: 'WhatsApp integration deleted successfully' };
   }
 
+  /**
+   * Soft delete (disconnect) WhatsApp integration
+   * Data kept for 30 days, can be restored
+   */
+  async disconnectWhatsAppIntegration(workspaceId: string, integrationId: string, userId: string) {
+    const integration = await this.prisma.whatsAppIntegration.findFirst({
+      where: {
+        id: integrationId,
+        workspaceId,
+      },
+    });
+
+    if (!integration) {
+      throw new NotFoundException('WhatsApp integration not found');
+    }
+
+    if (integration.deletedAt) {
+      throw new BadRequestException('Integration is already disconnected');
+    }
+
+    // Soft delete: mark as inactive and set deletedAt
+    const updated = await this.prisma.whatsAppIntegration.update({
+      where: { id: integrationId },
+      data: {
+        isActive: false,
+        deletedAt: new Date(),
+        deletedBy: userId,
+      },
+    });
+
+    // Calculate grace period end date (30 days from now)
+    const gracePeriodEnd = new Date();
+    gracePeriodEnd.setDate(gracePeriodEnd.getDate() + 30);
+
+    this.logger.log(`WhatsApp integration ${integrationId} disconnected by user ${userId}`);
+    
+    return {
+      message: 'WhatsApp integration disconnected successfully',
+      integration: {
+        id: updated.id,
+        phoneNumber: updated.phoneNumber,
+        disconnectedAt: updated.deletedAt,
+        gracePeriodEnds: gracePeriodEnd,
+        canRestore: true,
+      },
+    };
+  }
+
+  /**
+   * Restore disconnected WhatsApp integration
+   */
+  async restoreWhatsAppIntegration(workspaceId: string, integrationId: string) {
+    const integration = await this.prisma.whatsAppIntegration.findFirst({
+      where: {
+        id: integrationId,
+        workspaceId,
+      },
+    });
+
+    if (!integration) {
+      throw new NotFoundException('WhatsApp integration not found');
+    }
+
+    if (!integration.deletedAt) {
+      throw new BadRequestException('Integration is not disconnected');
+    }
+
+    // Check if grace period has expired (30 days)
+    const daysSinceDeleted = Math.floor(
+      (Date.now() - integration.deletedAt.getTime()) / (1000 * 60 * 60 * 24)
+    );
+
+    if (daysSinceDeleted > 30) {
+      throw new BadRequestException('Grace period expired. Integration data has been permanently deleted.');
+    }
+
+    // Restore: set back to active and clear deletedAt
+    const restored = await this.prisma.whatsAppIntegration.update({
+      where: { id: integrationId },
+      data: {
+        isActive: true,
+        deletedAt: null,
+        deletedBy: null,
+      },
+    });
+
+    this.logger.log(`WhatsApp integration ${integrationId} restored`);
+    
+    return {
+      message: 'WhatsApp integration restored successfully',
+      integration: {
+        id: restored.id,
+        phoneNumber: restored.phoneNumber,
+        restoredAt: new Date(),
+      },
+    };
+  }
+
   // ============================================================
   // SHOPIFY INTEGRATION (2026 - Client Credentials)
   // ============================================================
@@ -281,7 +382,8 @@ export class SettingsService {
         expiresAt,
       };
     } catch (error) {
-      this.logger.error(`Shopify credential exchange failed: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Shopify credential exchange failed: ${errorMessage}`);
       throw new Error('Failed to authenticate with Shopify. Please check your Client ID and Client Secret.');
     }
   }
@@ -343,7 +445,11 @@ export class SettingsService {
 
   async getShopifyStore(workspaceId: string) {
     const store = await this.prisma.shopifyStore.findFirst({
-      where: { workspaceId, isActive: true },
+      where: { 
+        workspaceId, 
+        isActive: true,
+        deletedAt: null, // Exclude disconnected stores
+      },
       select: {
         id: true,
         shopDomain: true,
@@ -373,7 +479,11 @@ export class SettingsService {
    */
   async getActiveShopifyStoreId(workspaceId: string): Promise<string | null> {
     const store = await this.prisma.shopifyStore.findFirst({
-      where: { workspaceId, isActive: true },
+      where: { 
+        workspaceId, 
+        isActive: true,
+        deletedAt: null, // Exclude disconnected stores
+      },
       select: { id: true },
     });
 
@@ -438,7 +548,8 @@ export class SettingsService {
     try {
       await this.registerShopifyWebhooks(workspaceId, accessToken, dto.shopDomain);
     } catch (error) {
-      this.logger.warn(`Failed to auto-register webhooks: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.warn(`Failed to auto-register webhooks: ${errorMessage}`);
       // Don't fail the store creation if webhook registration fails
     }
 
@@ -539,8 +650,9 @@ export class SettingsService {
           results.push({ topic: webhook.topic, success: true, id: data.data?.webhookSubscriptionCreate?.webhookSubscription?.id });
         }
       } catch (error) {
-        this.logger.error(`Failed to register webhook ${webhook.topic}: ${error.message}`);
-        results.push({ topic: webhook.topic, success: false, error: error.message });
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        this.logger.error(`Failed to register webhook ${webhook.topic}: ${errorMessage}`);
+        results.push({ topic: webhook.topic, success: false, error: errorMessage });
       }
     }
 
@@ -635,6 +747,104 @@ export class SettingsService {
 
     this.logger.log(`Shopify store ${storeId} deleted`);
     return { message: 'Shopify store deleted successfully' };
+  }
+
+  /**
+   * Soft delete (disconnect) Shopify store
+   * Data kept for 90 days (longer for business records), can be restored
+   */
+  async disconnectShopifyStore(workspaceId: string, storeId: string, userId: string) {
+    const store = await this.prisma.shopifyStore.findFirst({
+      where: {
+        id: storeId,
+        workspaceId,
+      },
+    });
+
+    if (!store) {
+      throw new NotFoundException('Shopify store not found');
+    }
+
+    if (store.deletedAt) {
+      throw new BadRequestException('Store is already disconnected');
+    }
+
+    // Soft delete: mark as inactive and set deletedAt
+    const updated = await this.prisma.shopifyStore.update({
+      where: { id: storeId },
+      data: {
+        isActive: false,
+        deletedAt: new Date(),
+        deletedBy: userId,
+      },
+    });
+
+    // Calculate grace period end date (90 days from now)
+    const gracePeriodEnd = new Date();
+    gracePeriodEnd.setDate(gracePeriodEnd.getDate() + 90);
+
+    this.logger.log(`Shopify store ${storeId} disconnected by user ${userId}`);
+    
+    return {
+      message: 'Shopify store disconnected successfully',
+      store: {
+        id: updated.id,
+        shopDomain: updated.shopDomain,
+        disconnectedAt: updated.deletedAt,
+        gracePeriodEnds: gracePeriodEnd,
+        canRestore: true,
+      },
+    };
+  }
+
+  /**
+   * Restore disconnected Shopify store
+   */
+  async restoreShopifyStore(workspaceId: string, storeId: string) {
+    const store = await this.prisma.shopifyStore.findFirst({
+      where: {
+        id: storeId,
+        workspaceId,
+      },
+    });
+
+    if (!store) {
+      throw new NotFoundException('Shopify store not found');
+    }
+
+    if (!store.deletedAt) {
+      throw new BadRequestException('Store is not disconnected');
+    }
+
+    // Check if grace period has expired (90 days)
+    const daysSinceDeleted = Math.floor(
+      (Date.now() - store.deletedAt.getTime()) / (1000 * 60 * 60 * 24)
+    );
+
+    if (daysSinceDeleted > 90) {
+      throw new BadRequestException('Grace period expired. Store data has been permanently deleted.');
+    }
+
+    // Restore: set back to active and clear deletedAt
+    const restored = await this.prisma.shopifyStore.update({
+      where: { id: storeId },
+      data: {
+        isActive: true,
+        deletedAt: null,
+        deletedBy: null,
+      },
+    });
+
+    this.logger.log(`Shopify store ${storeId} restored`);
+    
+    return {
+      message: 'Shopify store restored successfully',
+      store: {
+        id: restored.id,
+        shopDomain: restored.shopDomain,
+        restoredAt: new Date(),
+      },
+    };
   }
 
   // ============================================================
@@ -854,20 +1064,23 @@ export class SettingsService {
         securityNote: 'Each workspace has a unique webhook URL and token for better security isolation.',
       },
       shopify: {
-        callbackUrls: {
-          orderCreated: `${apiUrl}/api/webhooks/shopify/orders/create`,
-          orderUpdated: `${apiUrl}/api/webhooks/shopify/orders/update`,
-          orderCancelled: `${apiUrl}/api/webhooks/shopify/orders/cancelled`,
-        },
+        callbackUrl: `${apiUrl}/api/shopify/webhook`,
         setupInstructions: [
           '1. In Shopify Admin, go to Settings → Notifications',
           '2. Scroll to "Webhooks" section',
-          '3. Click "Create webhook" for each event',
-          '4. Select JSON format',
-          '5. Paste the corresponding Callback URL',
-          '6. Click "Save webhook"',
+          '3. Click "Create webhook"',
+          '4. Event: Order creation',
+          '5. Format: JSON',
+          '6. URL: Paste the Callback URL above',
+          '7. Click "Save webhook"',
+          '8. Repeat for Order updates and Order cancelled events (use same URL)',
         ],
-        note: 'Or use the "Register Webhooks" button to auto-configure (requires valid Shopify connection)',
+        note: 'The same webhook URL handles all order events. Shopify sends the event type in the x-shopify-topic header.',
+        requiredWebhooks: [
+          'orders/create - Required for new orders',
+          'orders/updated - Required for order status changes',
+          'orders/cancelled - Optional for cancelled orders',
+        ],
       },
     };
   }

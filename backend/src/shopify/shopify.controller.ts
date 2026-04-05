@@ -7,6 +7,25 @@ export class ShopifyController {
   constructor(private shopifyService: ShopifyService) {}
 
   /**
+   * GET /api/shopify/webhook/test
+   * Test endpoint to verify webhook URL is reachable
+   */
+  @Public()
+  @Post('webhook/test')
+  testWebhook(@Body() body: any) {
+    console.log('\n✅ ========================================');
+    console.log('🧪 TEST WEBHOOK RECEIVED');
+    console.log('   Body:', JSON.stringify(body, null, 2));
+    console.log('========================================\n');
+    return { 
+      success: true, 
+      message: 'Webhook endpoint is working!',
+      received: body,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  /**
    * POST /api/shopify/webhook
    * Shopify webhook handler (public endpoint)
    */
@@ -19,12 +38,26 @@ export class ShopifyController {
     @Body() body: any,
   ) {
     const orderId = body?.id || 'unknown';
+    const orderNumber = body?.order_number || body?.name || 'N/A';
+    
     console.log(`\n🔔 ========================================`);
     console.log(`📥 SHOPIFY WEBHOOK RECEIVED`);
     console.log(`   Topic: ${topic}`);
     console.log(`   Shop: ${shop}`);
     console.log(`   Order ID: ${orderId}`);
+    console.log(`   Order Number: ${orderNumber}`);
+    console.log(`   Timestamp: ${new Date().toISOString()}`);
     console.log(`========================================\n`);
+
+    if (!shop) {
+      console.error('❌ Missing x-shopify-shop-domain header');
+      return { error: 'Missing shop domain header' };
+    }
+
+    if (!topic) {
+      console.error('❌ Missing x-shopify-topic header');
+      return { error: 'Missing topic header' };
+    }
 
     // Verify signature (skip for now due to body parsing issues)
     // TODO: Implement raw body parser for proper HMAC verification
@@ -35,38 +68,54 @@ export class ShopifyController {
     // }
 
     // Find workspace by shop domain
+    console.log(`🔍 Looking up store with domain: ${shop}`);
     const store = await this.shopifyService['prisma'].shopifyStore.findUnique({
       where: { shopDomain: shop },
     });
 
     if (!store) {
       console.error(`❌ Store not found: ${shop}`);
+      console.error(`   Make sure the shop domain in Shopify matches the one in your database`);
       return { error: 'Store not found' };
     }
 
+    console.log(`✓ Found store: ${store.id}`);
     console.log(`✓ Processing webhook for workspace: ${store.workspaceId}`);
 
-    // Route to appropriate handler
-    switch (topic) {
-      case 'orders/create':
-        await this.shopifyService.handleOrderCreated(store.workspaceId, body);
-        break;
-      case 'orders/update':
-      case 'orders/updated':
-        console.log('📦 Order updated webhook - processing...');
-        await this.shopifyService.handleOrderUpdated(store.workspaceId, body);
-        break;
-      case 'orders/cancelled':
-        console.log('🚫 Order cancelled webhook received');
-        // await this.shopifyService.handleOrderCancelled(store.workspaceId, body);
-        break;
-      case 'orders/fulfilled':
-        await this.shopifyService.handleFulfillmentUpdate(store.workspaceId, body);
-        break;
-      default:
-        console.log(`⚠️ Unhandled webhook topic: ${topic}`);
-    }
+    try {
+      // Route to appropriate handler
+      switch (topic) {
+        case 'orders/create':
+          console.log('📝 Handling order creation...');
+          await this.shopifyService.handleOrderCreated(store.workspaceId, body);
+          console.log('✅ Order created successfully');
+          break;
+        case 'orders/update':
+        case 'orders/updated':
+          console.log('📦 Order updated webhook - processing...');
+          await this.shopifyService.handleOrderUpdated(store.workspaceId, body);
+          console.log('✅ Order updated successfully');
+          break;
+        case 'orders/cancelled':
+          console.log('🚫 Order cancelled webhook received');
+          // await this.shopifyService.handleOrderCancelled(store.workspaceId, body);
+          break;
+        case 'orders/fulfilled':
+          console.log('📦 Order fulfilled webhook - processing...');
+          await this.shopifyService.handleFulfillmentUpdate(store.workspaceId, body);
+          console.log('✅ Order fulfillment processed');
+          break;
+        default:
+          console.log(`⚠️ Unhandled webhook topic: ${topic}`);
+      }
 
-    return { success: true };
+      console.log('✅ Webhook processed successfully\n');
+      return { success: true };
+    } catch (error) {
+      console.error('❌ Error processing webhook:', error);
+      console.error('   Error details:', error instanceof Error ? error.message : error);
+      console.error('   Stack:', error instanceof Error ? error.stack : 'N/A');
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
   }
 }

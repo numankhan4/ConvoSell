@@ -76,8 +76,33 @@ async function executeActions(actions: any[], payload: any, prisma: PrismaClient
         default:
           console.warn(`Unknown action type: ${action.type}`);
       }
-    } catch (error) {
-      console.error(`Failed to execute action: ${action.type}`, error);
+    } catch (error: any) {
+      console.error(`\n❌ Failed to execute action: ${action.type}`);
+      
+      // Enhanced error logging for axios/API errors
+      if (error.isAxiosError && error.response) {
+        console.error(`   Status: ${error.response.status} ${error.response.statusText}`);
+        console.error(`   Error Data:`, error.response.data);
+        
+        // Extract specific WhatsApp error if present
+        if (error.response.data?.error) {
+          const whatsappError = error.response.data.error;
+          console.error(`   \n🔴 WhatsApp API Error:`);
+          console.error(`   Code: ${whatsappError.code || 'Unknown'}`);
+          console.error(`   Message: ${whatsappError.message || 'No message'}`);
+          console.error(`   Type: ${whatsappError.type || 'Unknown'}`);
+          
+          // Specific error handling
+          if (whatsappError.code === 133010) {
+            console.error(`\n   💡 FIX: Phone number not registered for testing.`);
+            console.error(`   Go to Meta Business Manager → WhatsApp → Phone numbers → Add test recipient`);
+            console.error(`   Add: ${payload.orderId ? 'order contact phone' : 'recipient phone'}`);
+          }
+        }
+      } else {
+        console.error(`   Error:`, error.message || error);
+      }
+      console.error(''); // Empty line for readability
     }
   }
 }
@@ -86,15 +111,25 @@ async function executeActions(actions: any[], payload: any, prisma: PrismaClient
  * Action: Send WhatsApp message
  */
 async function executeSendMessage(action: any, payload: any, prisma: PrismaClient) {
+  console.log(`\n📤 Sending WhatsApp message...`);
+  
   const order = await prisma.order.findUnique({
     where: { id: payload.orderId },
     include: { contact: true },
   });
 
-  if (!order || !order.contact.whatsappPhone) {
-    console.warn('Cannot send message: missing order or contact phone');
+  if (!order) {
+    console.warn(`   ⚠️  Order not found: ${payload.orderId}`);
     return;
   }
+
+  if (!order.contact.whatsappPhone) {
+    console.warn(`   ⚠️  Contact missing WhatsApp phone: ${order.contact.name}`);
+    return;
+  }
+
+  console.log(`   To: ${order.contact.name} (${order.contact.whatsappPhone})`);
+  console.log(`   Order: ${order.externalOrderNumber || order.externalOrderId}`);
 
   // Get WhatsApp integration
   const integration = await prisma.whatsAppIntegration.findFirst({
@@ -150,6 +185,8 @@ async function executeSendMessage(action: any, payload: any, prisma: PrismaClien
   });
 
   const whatsappMessageId = response.data.messages[0].id;
+  console.log(`   ✅ Message sent successfully!`);
+  console.log(`   WhatsApp Message ID: ${whatsappMessageId}`);
 
   // Find or create conversation
   let conversation = await prisma.conversation.findFirst({
@@ -168,6 +205,9 @@ async function executeSendMessage(action: any, payload: any, prisma: PrismaClien
         status: 'open',
       },
     });
+    console.log(`   💬 Created new conversation: ${conversation.id}`);
+  } else {
+    console.log(`   💬 Using existing conversation: ${conversation.id}`);
   }
 
   // Store message
@@ -183,6 +223,7 @@ async function executeSendMessage(action: any, payload: any, prisma: PrismaClien
       sentAt: new Date(),
     },
   });
+  console.log(`   💾 Message saved to database`);
 
   // Update order
   await prisma.order.update({
@@ -190,7 +231,7 @@ async function executeSendMessage(action: any, payload: any, prisma: PrismaClien
     data: { confirmationSentAt: new Date() },
   });
 
-  console.log(`✅ Sent message to ${order.contact.whatsappPhone}`);
+  console.log(`   🎉 Complete! Message delivered and tracked.\n`);
 }
 
 /**

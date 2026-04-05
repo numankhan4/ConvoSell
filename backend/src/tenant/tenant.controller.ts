@@ -1,11 +1,12 @@
 import { Controller, Get, Patch, Post, Delete, Body, Param, UseGuards } from '@nestjs/common';
 import { TenantService } from './tenant.service';
 import { WorkspaceId } from '../common/decorators/user.decorator';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TenantGuard } from '../common/guards/tenant.guard';
 import { Roles } from '../common/guards/roles.guard';
 
 @Controller('workspace')
-@UseGuards(TenantGuard)
+@UseGuards(JwtAuthGuard, TenantGuard)
 export class TenantController {
   constructor(private tenantService: TenantService) {}
 

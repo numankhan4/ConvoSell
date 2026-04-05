@@ -51,6 +51,22 @@ export class SettingsController {
     return this.settingsService.deleteWhatsAppIntegration(req.user.workspaceId, id);
   }
 
+  // Soft delete (disconnect with 30-day grace period)
+  @Post('whatsapp/:id/disconnect')
+  async disconnectWhatsAppIntegration(@Request() req, @Param('id') id: string) {
+    return this.settingsService.disconnectWhatsAppIntegration(
+      req.user.workspaceId,
+      id,
+      req.user.sub, // userId
+    );
+  }
+
+  // Restore disconnected integration
+  @Post('whatsapp/:id/restore')
+  async restoreWhatsAppIntegration(@Request() req, @Param('id') id: string) {
+    return this.settingsService.restoreWhatsAppIntegration(req.user.workspaceId, id);
+  }
+
   @Post('whatsapp/test')
   async testWhatsAppConnection(@Body() credentials: {
     phoneNumberId: string;
@@ -106,6 +122,22 @@ export class SettingsController {
   @Delete('shopify/:id')
   async deleteShopifyStore(@Request() req, @Param('id') id: string) {
     return this.settingsService.deleteShopifyStore(req.user.workspaceId, id);
+  }
+
+  // Soft delete (disconnect with 90-day grace period)
+  @Post('shopify/:id/disconnect')
+  async disconnectShopifyStore(@Request() req, @Param('id') id: string) {
+    return this.settingsService.disconnectShopifyStore(
+      req.user.workspaceId,
+      id,
+      req.user.sub, // userId
+    );
+  }
+
+  // Restore disconnected store
+  @Post('shopify/:id/restore')
+  async restoreShopifyStore(@Request() req, @Param('id') id: string) {
+    return this.settingsService.restoreShopifyStore(req.user.workspaceId, id);
   }
 
   @Post('shopify/webhooks/register')

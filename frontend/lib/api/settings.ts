@@ -54,6 +54,16 @@ export const settingsApi = {
     return response.data;
   },
 
+  disconnectWhatsAppIntegration: async (id: string) => {
+    const response = await axios.post(`${API_URL}/settings/whatsapp/${id}/disconnect`);
+    return response.data;
+  },
+
+  restoreWhatsAppIntegration: async (id: string) => {
+    const response = await axios.post(`${API_URL}/settings/whatsapp/${id}/restore`);
+    return response.data;
+  },
+
   // Shopify Store
   getShopifyStore: async (token: string) => {
     const response = await axios.get(`${API_URL}/settings/shopify`, {
@@ -99,6 +109,16 @@ export const settingsApi = {
     const response = await axios.delete(`${API_URL}/settings/shopify/${id}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
+    return response.data;
+  },
+
+  disconnectShopifyStore: async (id: string) => {
+    const response = await axios.post(`${API_URL}/settings/shopify/${id}/disconnect`);
+    return response.data;
+  },
+
+  restoreShopifyStore: async (id: string) => {
+    const response = await axios.post(`${API_URL}/settings/shopify/${id}/restore`);
     return response.data;
   },
 

@@ -269,23 +269,29 @@ export default function SettingsPage() {
       <div className="space-y-3">
         <div>
           <div className="font-semibold text-slate-900">Disconnect WhatsApp?</div>
-          <div className="text-sm text-slate-600 mt-1">This will stop all WhatsApp messaging.</div>
+          <div className="text-sm text-slate-600 mt-1">
+            Your integration will be disconnected but can be restored within 30 days.
+          </div>
         </div>
         <div className="flex gap-2">
           <button
             onClick={async () => {
               toast.dismiss(t.id);
               try {
-                await settingsApi.deleteWhatsAppIntegration(token, whatsappIntegration.id);
+                const result = await settingsApi.disconnectWhatsAppIntegration(whatsappIntegration.id);
                 setWhatsappIntegration(null);
-                toast.success('WhatsApp integration deleted successfully!');
+                const gracePeriodDate = new Date(result.gracePeriodEnds).toLocaleDateString();
+                toast.success(
+                  `WhatsApp disconnected. You can restore it until ${gracePeriodDate}`,
+                  { duration: 5000 }
+                );
               } catch (error: any) {
-                toast.error(error.response?.data?.message || 'Failed to delete integration');
+                toast.error(error.response?.data?.message || 'Failed to disconnect integration');
               }
             }}
-            className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors"
+            className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-sm font-medium transition-colors"
           >
-            Delete
+            Disconnect
           </button>
           <button
             onClick={() => toast.dismiss(t.id)}
@@ -305,23 +311,29 @@ export default function SettingsPage() {
       <div className="space-y-3">
         <div>
           <div className="font-semibold text-slate-900">Disconnect Shopify?</div>
-          <div className="text-sm text-slate-600 mt-1">This will stop order syncing.</div>
+          <div className="text-sm text-slate-600 mt-1">
+            Your store will be disconnected but can be restored within 90 days.
+          </div>
         </div>
         <div className="flex gap-2">
           <button
             onClick={async () => {
               toast.dismiss(t.id);
               try {
-                await settingsApi.deleteShopifyStore(token, shopifyStore.id);
+                const result = await settingsApi.disconnectShopifyStore(shopifyStore.id);
                 setShopifyStore(null);
-                toast.success('Shopify store deleted successfully!');
+                const gracePeriodDate = new Date(result.gracePeriodEnds).toLocaleDateString();
+                toast.success(
+                  `Shopify disconnected. You can restore it until ${gracePeriodDate}`,
+                  { duration: 5000 }
+                );
               } catch (error: any) {
-                toast.error(error.response?.data?.message || 'Failed to delete store');
+                toast.error(error.response?.data?.message || 'Failed to disconnect store');
               }
             }}
-            className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors"
+            className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-sm font-medium transition-colors"
           >
-            Delete
+            Disconnect
           </button>
           <button
             onClick={() => toast.dismiss(t.id)}
@@ -345,10 +357,23 @@ export default function SettingsPage() {
       if (failCount === 0) {
         toast.success(`✅ ${successCount} webhooks registered successfully!`);
       } else {
-        toast.error(`⚠️ ${successCount} succeeded, ${failCount} failed. Check console for details.`);
+        // Check if any errors are about protected customer data
+        const hasDataAccessError = results.some((r: any) => 
+          !r.success && r.error?.includes('protected customer data')
+        );
+        
+        if (hasDataAccessError) {
+          toast.error(
+            '⚠️ Shopify requires approval to access protected customer data. See "Setup Instructions" below for help.',
+            { duration: 8000 }
+          );
+        } else {
+          toast.error(`⚠️ ${successCount} succeeded, ${failCount} failed. Check console for details.`);
+        }
       }
       console.log('Webhook registration results:', results);
     } catch (error: any) {
+      console.error('Webhook registration error:', error);
       toast.error(error.response?.data?.message || 'Failed to register webhooks');
     }
   };
@@ -431,9 +456,21 @@ export default function SettingsPage() {
   return (
     <div className="space-y-6 sm:space-y-8">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Settings</h1>
-        <p className="text-sm sm:text-base text-slate-600 mt-2">Manage your integrations and configurations</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Settings</h1>
+          <p className="text-sm sm:text-base text-slate-600 mt-2">Manage your integrations and configurations</p>
+        </div>
+        <button
+          onClick={() => window.location.href = '/dashboard/settings/workspace'}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium flex items-center gap-2"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          Workspace Settings
+        </button>
       </div>
 
       {/* Tabs */}
@@ -1343,7 +1380,7 @@ export default function SettingsPage() {
             {/* OAuth Connection (if connected via OAuth) */}
             {shopifyStore && shopifyStore.tokenType === 'oauth' && (
               <div className="bg-green-50 border border-green-200 rounded-lg p-6">
-                <div className="flex justify-between items-start">
+                <div className="flex justify-between items-start mb-4">
                   <div>
                     <h3 className="font-semibold text-green-900 mb-2">✅ Connected via OAuth</h3>
                     <p className="text-sm text-green-700">
@@ -1369,6 +1406,85 @@ export default function SettingsPage() {
                       Disconnect
                     </span>
                   </button>
+                </div>
+                
+                {/* Webhook Registration Section */}
+                <div className="bg-white border border-green-300 rounded-lg p-4 mt-4">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <h4 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                        <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        Webhook Configuration
+                      </h4>
+                      <p className="text-sm text-gray-600 mb-3">
+                        Webhooks notify your CRM when orders are created in Shopify. Click the button to automatically register webhooks.
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={handleRegisterWebhooks}
+                          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2 shadow-sm hover:shadow-md"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                          </svg>
+                          Register Webhooks
+                        </button>
+                        <span className="text-xs text-gray-500">
+                          (One-time setup for order notifications)
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="mt-3 bg-blue-50 border border-blue-200 rounded p-3">
+                    <p className="text-xs text-blue-800">
+                      <strong>What this does:</strong> Automatically creates webhook subscriptions in Shopify for:
+                    </p>
+                    <ul className="text-xs text-blue-700 mt-1 ml-4 space-y-1">
+                      <li>• <strong>orders/create</strong> - New orders appear in CRM instantly</li>
+                      <li>• <strong>orders/updated</strong> - Order status changes sync automatically</li>
+                      <li>• <strong>orders/cancelled</strong> - Cancelled orders update in CRM</li>
+                    </ul>
+                  </div>
+                  
+                  <div className="mt-3 bg-amber-50 border border-amber-200 rounded p-3">
+                    <p className="text-xs text-amber-800 mb-2">
+                      <strong>⚠️ API Registration Requires Approval:</strong> Shopify requires approval before custom apps can register webhooks via API.
+                    </p>
+                    <p className="text-xs text-amber-700 mb-2">
+                      <strong>Alternative - Manual Setup (Works Immediately):</strong>
+                    </p>
+                    <ol className="text-xs text-amber-700 ml-4 space-y-1">
+                      <li>1. Go to <strong>Shopify Admin → Settings → Notifications → Webhooks</strong></li>
+                      <li>2. Click <strong>"Create webhook"</strong> and create 3 webhooks:</li>
+                      <li className="ml-4">• Event: <strong>ORDERS_CREATE</strong>, Format: JSON, URL: Your webhook endpoint</li>
+                      <li className="ml-4">• Event: <strong>ORDERS_UPDATED</strong>, Format: JSON, URL: Same endpoint</li>
+                      <li className="ml-4">• Event: <strong>ORDERS_CANCELLED</strong>, Format: JSON, URL: Same endpoint</li>
+                      <li>3. <strong>Done!</strong> Webhooks persist - you only create them once</li>
+                    </ol>
+                    <div className="mt-2 p-2 bg-green-50 border border-green-300 rounded">
+                      <p className="text-xs text-green-800">
+                        ✅ <strong>One-time setup:</strong> Once created in Shopify, webhooks keep working indefinitely. You don't need to recreate them unless you disconnect OAuth or change your webhook URL.
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="mt-3 bg-purple-50 border border-purple-200 rounded p-3">
+                    <p className="text-xs text-purple-800 font-semibold mb-1">
+                      🚨 Worker Service Required for Automations
+                    </p>
+                    <p className="text-xs text-purple-700 mb-2">
+                      Webhooks will sync orders to your database, but to trigger WhatsApp automations and create inbox messages, you must run the <strong>Worker service</strong>:
+                    </p>
+                    <code className="text-xs bg-purple-100 px-2 py-1 rounded block font-mono mb-2">
+                      cd worker && npm run start:dev
+                    </code>
+                    <p className="text-xs text-purple-700">
+                      Without the worker, orders appear in the CRM but automation messages won't be sent automatically.
+                    </p>
+                  </div>
                 </div>
               </div>
             )}
