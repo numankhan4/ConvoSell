@@ -1,9 +1,10 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { ShopifyService } from '../shopify/shopify.service';
+import { SubscriptionPlan, canSendTemplateMessage, WHATSAPP_COSTS } from '../common/constants/subscription.constants';
 
 interface SendMessageDto {
   to: string; // E.164 phone number
@@ -177,6 +178,203 @@ export class WhatsAppService {
         components,
       },
     });
+  }
+
+  /**
+   * Send managed template message with quota tracking and cost management
+   * This is the production-ready method for template messages
+   */
+  async sendManagedTemplateMessage(params: {
+    workspaceId: string;
+    templateId: string;
+    recipientPhone: string;
+    contactId?: string;
+    orderId?: string;
+    headerParams?: string[];
+    bodyParams: string[];
+    buttonParams?: string[];
+  }): Promise<{ messageId: string; status: string; cost: number }> {
+    const { workspaceId, templateId, recipientPhone, contactId, orderId, headerParams, bodyParams, buttonParams } = params;
+
+    // 1. Get workspace and check subscription
+    const workspace = await this.prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: {
+        id: true,
+        plan: true,
+        templateMessagesLimit: true,
+        templateMessagesUsed: true,
+        quotaResetAt: true,
+        subscriptionStatus: true,
+      },
+    });
+
+    if (!workspace) {
+      throw new BadRequestException('Workspace not found');
+    }
+
+    // Check if subscription is active
+    if (workspace.subscriptionStatus !== 'active' && workspace.subscriptionStatus !== 'trialing') {
+      throw new ForbiddenException('Your subscription is not active. Please update payment details.');
+    }
+
+    // Check quota reset (monthly cycle)
+    const now = new Date();
+    if (workspace.quotaResetAt < now) {
+      // Reset quota
+      await this.prisma.workspace.update({
+        where: { id: workspaceId },
+        data: {
+          templateMessagesUsed: 0,
+          quotaResetAt: new Date(now.getFullYear(), now.getMonth() + 1, 1), // First day of next month
+        },
+      });
+      workspace.templateMessagesUsed = 0;
+    }
+
+    // 2. Check quota availability
+    const quotaCheck = canSendTemplateMessage(
+      workspace.plan as SubscriptionPlan,
+      workspace.templateMessagesUsed,
+      workspace.templateMessagesLimit
+    );
+
+    if (!quotaCheck.allowed) {
+      throw new ForbiddenException(quotaCheck.reason);
+    }
+
+    // 3. Get template details
+    const template = await this.prisma.whatsAppMessageTemplate.findUnique({
+      where: { id: templateId },
+      include: { workspace: true },
+    });
+
+    if (!template) {
+      throw new BadRequestException('Template not found');
+    }
+
+    if (template.workspaceId !== workspaceId) {
+      throw new ForbiddenException('Template does not belong to this workspace');
+    }
+
+    if (template.status !== 'APPROVED') {
+      throw new BadRequestException(`Template is not approved. Current status: ${template.status}`);
+    }
+
+    // 4. Build WhatsApp template components
+    const components: any[] = [];
+
+    // Header component
+    if (template.headerType === 'TEXT' && template.headerText && headerParams?.length) {
+      components.push({
+        type: 'header',
+        parameters: headerParams.map(value => ({ type: 'text', text: value })),
+      });
+    } else if (template.headerType && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(template.headerType) && headerParams?.length) {
+      components.push({
+        type: 'header',
+        parameters: [{ type: template.headerType.toLowerCase(), [template.headerType.toLowerCase()]: { link: headerParams[0] } }],
+      });
+    }
+
+    // Body component (required if has variables)
+    if (bodyParams?.length) {
+      components.push({
+        type: 'body',
+        parameters: bodyParams.map(value => ({ type: 'text', text: value })),
+      });
+    }
+
+    // Button component (for dynamic buttons)
+    if (buttonParams?.length) {
+      components.push({
+        type: 'button',
+        sub_type: 'url',
+        index: 0,
+        parameters: buttonParams.map(value => ({ type: 'text', text: value })),
+      });
+    }
+
+    // 5. Calculate estimated cost
+    const estimatedCost = template.category === 'MARKETING' 
+      ? WHATSAPP_COSTS.MARKETING_TEMPLATE 
+      : WHATSAPP_COSTS.UTILITY_TEMPLATE;
+
+    try {
+      // 6. Send the template message via WhatsApp API
+      const result = await this.sendMessage(workspaceId, {
+        to: recipientPhone,
+        type: 'template',
+        template: {
+          name: template.name,
+          language: { code: template.language },
+          components: components.length > 0 ? components : undefined,
+        },
+      });
+
+      // 7. Record template message in database
+      await this.prisma.templateMessage.create({
+        data: {
+          workspaceId,
+          templateId,
+          recipientPhone,
+          contactId,
+          orderId,
+          headerParams: headerParams || [],
+          bodyParams: bodyParams || [],
+          buttonParams: buttonParams || [],
+          whatsappMessageId: result.messageId,
+          status: 'sent',
+          estimatedCost,
+          sentAt: new Date(),
+        },
+      });
+
+      // 8. Increment workspace quota usage
+      await this.prisma.workspace.update({
+        where: { id: workspaceId },
+        data: {
+          templateMessagesUsed: { increment: 1 },
+        },
+      });
+
+      // 9. Update template stats
+      await this.prisma.whatsAppMessageTemplate.update({
+        where: { id: templateId },
+        data: {
+          sentCount: { increment: 1 },
+        },
+      });
+
+      this.logger.log(
+        `✅ Template message sent: ${template.name} to ${recipientPhone} (Cost: PKR ${estimatedCost})`
+      );
+
+      return {
+        messageId: result.messageId,
+        status: 'sent',
+        cost: estimatedCost,
+      };
+    } catch (error) {
+      // Log failed attempt
+      await this.prisma.templateMessage.create({
+        data: {
+          workspaceId,
+          templateId,
+          recipientPhone,
+          contactId,
+          orderId,
+          headerParams: headerParams || [],
+          bodyParams: bodyParams || [],
+          buttonParams: buttonParams || [],
+          status: 'failed',
+          errorMessage: error.message,
+          failedAt: new Date(),
+        },
+      });
+
+      throw error;
+    }
   }
 
   /**
@@ -769,6 +967,141 @@ export class WhatsAppService {
     } catch (error) {
       this.logger.error(`Failed to cancel order ${orderId}:`, error);
     }
+  }
+
+  /**
+   * Get workspace template message quota status
+   */
+  async getQuotaStatus(workspaceId: string): Promise<{
+    plan: string;
+    limit: number;
+    used: number;
+    remaining: number;
+    resetAt: Date;
+    canSend: boolean;
+    subscriptionStatus: string;
+  }> {
+    const workspace = await this.prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: {
+        plan: true,
+        templateMessagesLimit: true,
+        templateMessagesUsed: true,
+        quotaResetAt: true,
+        subscriptionStatus: true,
+      },
+    });
+
+    if (!workspace) {
+      throw new BadRequestException('Workspace not found');
+    }
+
+    // Check if quota needs reset
+    const now = new Date();
+    let used = workspace.templateMessagesUsed;
+    let resetAt = workspace.quotaResetAt;
+
+    if (resetAt < now) {
+      // Quota should be reset
+      await this.prisma.workspace.update({
+        where: { id: workspaceId },
+        data: {
+          templateMessagesUsed: 0,
+          quotaResetAt: new Date(now.getFullYear(), now.getMonth() + 1, 1),
+        },
+      });
+      used = 0;
+      resetAt = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    }
+
+    const limit = workspace.templateMessagesLimit;
+    const remaining = limit === -1 ? 999999 : Math.max(0, limit - used);
+    const quotaCheck = canSendTemplateMessage(
+      workspace.plan as SubscriptionPlan,
+      used,
+      limit
+    );
+
+    return {
+      plan: workspace.plan,
+      limit: limit === -1 ? -1 : limit, // -1 means unlimited
+      used,
+      remaining,
+      resetAt,
+      canSend: quotaCheck.allowed,
+      subscriptionStatus: workspace.subscriptionStatus,
+    };
+  }
+
+  /**
+   * Get template message statistics for analytics
+   */
+  async getTemplateMessageStats(workspaceId: string, days: number = 30): Promise<{
+    totalSent: number;
+    totalDelivered: number;
+    totalRead: number;
+    totalFailed: number;
+    totalCost: number;
+    deliveryRate: number;
+    readRate: number;
+    byTemplate: Array<{
+      templateId: string;
+      templateName: string;
+      count: number;
+      cost: number;
+    }>;
+  }> {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+
+    const messages = await this.prisma.templateMessage.findMany({
+      where: {
+        workspaceId,
+        createdAt: { gte: since },
+      },
+      include: {
+        template: {
+          select: { id: true, name: true },
+        },
+      },
+    });
+
+    const totalSent = messages.filter(m => ['sent', 'delivered', 'read'].includes(m.status)).length;
+    const totalDelivered = messages.filter(m => ['delivered', 'read'].includes(m.status)).length;
+    const totalRead = messages.filter(m => m.status === 'read').length;
+    const totalFailed = messages.filter(m => m.status === 'failed').length;
+    const totalCost = messages.reduce((sum, m) => sum + (m.estimatedCost || 0), 0);
+
+    const deliveryRate = totalSent > 0 ? (totalDelivered / totalSent) * 100 : 0;
+    const readRate = totalSent > 0 ? (totalRead / totalSent) * 100 : 0;
+
+    // Group by template
+    const byTemplateMap = new Map<string, { name: string; count: number; cost: number }>();
+    messages.forEach(msg => {
+      if (!msg.template) return;
+      const existing = byTemplateMap.get(msg.templateId) || { name: msg.template.name, count: 0, cost: 0 };
+      existing.count++;
+      existing.cost += msg.estimatedCost || 0;
+      byTemplateMap.set(msg.templateId, existing);
+    });
+
+    const byTemplate = Array.from(byTemplateMap.entries()).map(([templateId, data]) => ({
+      templateId,
+      templateName: data.name,
+      count: data.count,
+      cost: Math.round(data.cost),
+    }));
+
+    return {
+      totalSent,
+      totalDelivered,
+      totalRead,
+      totalFailed,
+      totalCost: Math.round(totalCost),
+      deliveryRate: Math.round(deliveryRate * 10) / 10,
+      readRate: Math.round(readRate * 10) / 10,
+      byTemplate,
+    };
   }
 
   /**

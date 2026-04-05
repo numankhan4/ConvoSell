@@ -50,6 +50,9 @@ export default function HomePage() {
           </Link>
 
           <div className="flex items-center gap-4">
+            <Link href="/pricing" className="text-sm text-slate-600 hover:text-slate-900 transition">
+              Pricing
+            </Link>
             <Link href="/login" className="text-sm text-slate-600 hover:text-slate-900 transition">
               Login
             </Link>
@@ -439,63 +442,199 @@ export default function HomePage() {
       </section>
 
       {/* 🎁 PRICING SECTION */}
-      <section className="py-24">
-        <div className="max-w-6xl mx-auto px-6">
+      <section className="py-24 bg-gradient-to-br from-slate-50 to-blue-50/30">
+        <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-16">
             <h2 className="text-4xl font-bold mb-4">Simple, Transparent Pricing</h2>
-            <p className="text-xl text-slate-600">Grow without limits. No hidden fees.</p>
+            <p className="text-xl text-slate-600 mb-4">Start free. Scale as you grow. No hidden fees.</p>
+            <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm">
+              <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="text-blue-900">
+                <strong>WhatsApp API costs:</strong> PKR 5-12 per template message (billed by Meta)
+              </span>
+            </div>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-8">
-            <div className="border-2 border-slate-200 rounded-2xl p-8 hover:border-primary-400 transition">
-              <h3 className="text-2xl font-bold mb-2">Starter</h3>
-              <p className="text-slate-600 mb-6">Perfect for getting started</p>
-              <p className="text-4xl font-bold mb-1">Free</p>
-              <p className="text-sm text-slate-600 mb-6">Forever</p>
-              <ul className="space-y-3 text-sm mb-8">
-                <li className="flex items-center gap-2">✅ <span>Up to 100 orders/month</span></li>
-                <li className="flex items-center gap-2">✅ <span>WhatsApp verification</span></li>
-                <li className="flex items-center gap-2">✅ <span>Basic analytics</span></li>
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            {/* Free Plan */}
+            <div className="bg-white border-2 border-slate-200 rounded-2xl p-6 hover:border-blue-300 hover:shadow-lg transition">
+              <div className="mb-4">
+                <h3 className="text-xl font-bold mb-2">Free</h3>
+                <p className="text-sm text-slate-600 mb-4">Test the platform</p>
+                <div className="mb-4">
+                  <p className="text-4xl font-bold mb-1">PKR 0</p>
+                  <p className="text-sm text-slate-500">Forever free</p>
+                </div>
+              </div>
+              <ul className="space-y-2 text-sm mb-6 min-h-[120px]">
+                <li className="flex items-start gap-2">
+                  <svg className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span>Session messages only</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <svg className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span>100 contacts</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <svg className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span>Basic analytics</span>
+                </li>
               </ul>
-              <Link href="/register" className="w-full block text-center border-2 border-primary-600 text-primary-600 py-3 rounded-lg font-medium hover:bg-primary-50 transition">
+              <Link href="/register" className="w-full block text-center border-2 border-slate-300 text-slate-700 py-2.5 rounded-lg font-medium hover:bg-slate-50 transition text-sm">
                 Get Started
               </Link>
             </div>
 
-            <div className="border-2 border-primary-600 rounded-2xl p-8 bg-primary-50 relative">
-              <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 bg-primary-600 text-white px-4 py-1 rounded-full text-sm font-medium">
+            {/* Starter Plan - Most Popular */}
+            <div className="bg-white border-2 border-blue-500 rounded-2xl p-6 relative shadow-lg transform scale-105">
+              <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-blue-600 to-blue-500 text-white px-3 py-1 rounded-full text-xs font-semibold shadow-md">
                 Most Popular
               </div>
-              <h3 className="text-2xl font-bold mb-2">Professional</h3>
-              <p className="text-slate-600 mb-6">For growing businesses</p>
-              <p className="text-4xl font-bold mb-1">PKR 4,999</p>
-              <p className="text-sm text-slate-600 mb-6">per month</p>
-              <ul className="space-y-3 text-sm mb-8">
-                <li className="flex items-center gap-2">✅ <span>Unlimited orders</span></li>
-                <li className="flex items-center gap-2">✅ <span>Priority support</span></li>
-                <li className="flex items-center gap-2">✅ <span>Advanced analytics</span></li>
-                <li className="flex items-center gap-2">✅ <span>Team collaboration</span></li>
+              <div className="mb-4">
+                <h3 className="text-xl font-bold mb-2">Starter</h3>
+                <p className="text-sm text-slate-600 mb-4">Perfect for small stores</p>
+                <div className="mb-4">
+                  <p className="text-4xl font-bold mb-1">PKR 2,999</p>
+                  <p className="text-sm text-slate-500">per month</p>
+                  <p className="text-xs text-blue-600 mt-1">+ ~PKR 175/mo API costs</p>
+                </div>
+              </div>
+              <ul className="space-y-2 text-sm mb-6 min-h-[120px]">
+                <li className="flex items-start gap-2">
+                  <svg className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span><strong>50 template messages/mo</strong></span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <svg className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span>Auto order confirmations</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <svg className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span>1,000 contacts</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <svg className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span>Priority support</span>
+                </li>
               </ul>
-              <Link href="/register" className="w-full block text-center bg-primary-600 text-white py-3 rounded-lg font-medium hover:bg-primary-700 transition">
+              <Link href="/register" className="w-full block text-center bg-blue-600 text-white py-2.5 rounded-lg font-semibold hover:bg-blue-700 transition shadow-md text-sm">
                 Start Free Trial
               </Link>
             </div>
 
-            <div className="border-2 border-slate-200 rounded-2xl p-8 hover:border-primary-400 transition">
-              <h3 className="text-2xl font-bold mb-2">Enterprise</h3>
-              <p className="text-slate-600 mb-6">For large teams</p>
-              <p className="text-4xl font-bold mb-1">Custom</p>
-              <p className="text-sm text-slate-600 mb-6">Contact us</p>
-              <ul className="space-y-3 text-sm mb-8">
-                <li className="flex items-center gap-2">✅ <span>Everything in Pro</span></li>
-                <li className="flex items-center gap-2">✅ <span>Custom integration</span></li>
-                <li className="flex items-center gap-2">✅ <span>Dedicated support</span></li>
-                <li className="flex items-center gap-2">✅ <span>SLA guarantee</span></li>
+            {/* Pro Plan */}
+            <div className="bg-white border-2 border-slate-200 rounded-2xl p-6 hover:border-blue-300 hover:shadow-lg transition">
+              <div className="mb-4">
+                <h3 className="text-xl font-bold mb-2">Pro</h3>
+                <p className="text-sm text-slate-600 mb-4">For growing businesses</p>
+                <div className="mb-4">
+                  <p className="text-4xl font-bold mb-1">PKR 6,999</p>
+                  <p className="text-sm text-slate-500">per month</p>
+                  <p className="text-xs text-blue-600 mt-1">+ ~PKR 700/mo API costs</p>
+                </div>
+              </div>
+              <ul className="space-y-2 text-sm mb-6 min-h-[120px]">
+                <li className="flex items-start gap-2">
+                  <svg className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span><strong>200 template messages/mo</strong></span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <svg className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span>5,000 contacts</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <svg className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span>Custom templates</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <svg className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span>Shopify integration</span>
+                </li>
               </ul>
-              <button className="w-full text-center border-2 border-primary-600 text-primary-600 py-3 rounded-lg font-medium hover:bg-primary-50 transition">
-                Contact Sales
-              </button>
+              <Link href="/register" className="w-full block text-center border-2 border-blue-600 text-blue-600 py-2.5 rounded-lg font-medium hover:bg-blue-50 transition text-sm">
+                Start Free Trial
+              </Link>
             </div>
+
+            {/* Business Plan */}
+            <div className="bg-white border-2 border-slate-200 rounded-2xl p-6 hover:border-blue-300 hover:shadow-lg transition">
+              <div className="mb-4">
+                <h3 className="text-xl font-bold mb-2">Business</h3>
+                <p className="text-sm text-slate-600 mb-4">For high-volume stores</p>
+                <div className="mb-4">
+                  <p className="text-4xl font-bold mb-1">PKR 14,999</p>
+                  <p className="text-sm text-slate-500">per month</p>
+                  <p className="text-xs text-blue-600 mt-1">+ ~PKR 3,500/mo API costs</p>
+                </div>
+              </div>
+              <ul className="space-y-2 text-sm mb-6 min-h-[120px]">
+                <li className="flex items-start gap-2">
+                  <svg className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span><strong>1,000 template messages/mo</strong></span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <svg className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span>25,000 contacts</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <svg className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span>API access</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <svg className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span>Dedicated support</span>
+                </li>
+              </ul>
+              <Link href="/register" className="w-full block text-center border-2 border-blue-600 text-blue-600 py-2.5 rounded-lg font-medium hover:bg-blue-50 transition text-sm">
+                Start Free Trial
+              </Link>
+            </div>
+          </div>
+
+          {/* View All Plans CTA */}
+          <div className="text-center mt-12">
+            <p className="text-slate-600 mb-4">Need more? Check out our <strong>Enterprise</strong> plan with unlimited everything.</p>
+            <Link 
+              href="/pricing" 
+              className="inline-flex items-center gap-2 px-6 py-3 bg-white border-2 border-slate-300 text-slate-700 rounded-lg font-medium hover:border-blue-500 hover:text-blue-600 transition"
+            >
+              View All Plans & Features
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </Link>
           </div>
         </div>
       </section>

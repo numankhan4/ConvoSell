@@ -101,8 +101,8 @@ export default function SettingsPage() {
 
     setIsHealthChecking(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
-      const url = `${apiUrl}/api/settings/whatsapp/${whatsappIntegration.id}/health-check`;
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
+      const url = `${apiUrl}/settings/whatsapp/${whatsappIntegration.id}/health-check`;
       
       console.log('Health check URL:', url);
       
@@ -131,7 +131,54 @@ export default function SettingsPage() {
       } else if (data.healthStatus === 'warning') {
         toast('⚠️ Token is valid but expiring soon', { icon: '⚠️' });
       } else {
-        toast.error('❌ Token validation failed: ' + (data.healthError || 'Unknown error'));
+        // Check for specific Meta/Facebook auth errors
+        const errorMsg = data.healthError || 'Unknown error';
+        const isAuthError = errorMsg.includes('session has been invalidated') || 
+                           errorMsg.includes('changed their password') ||
+                           errorMsg.includes('validating access token') ||
+                           errorMsg.includes('Error validating');
+        
+        if (isAuthError) {
+          toast((t) => (
+            <div className="space-y-3 max-w-md">
+              <div>
+                <div className="font-semibold text-red-900 mb-2">🔐 Token Invalidated by Meta</div>
+                <div className="text-sm text-slate-700 mb-2">
+                  Your access token has been invalidated by Facebook/Meta. This happens when:
+                </div>
+                <ul className="text-xs text-slate-600 space-y-1 ml-4 mb-3">
+                  <li>• Facebook password was changed</li>
+                  <li>• Meta invalidated session for security</li>
+                  <li>• Token was manually revoked</li>
+                </ul>
+                <div className="text-sm font-semibold text-slate-900 mb-2">
+                  How to fix:
+                </div>
+                <ol className="text-xs text-slate-600 space-y-1 ml-4 list-decimal">
+                  <li>Go to <a href="https://developers.facebook.com/" target="_blank" className="text-blue-600 underline">Meta Developers Console</a></li>
+                  <li>Select your WhatsApp app</li>
+                  <li>Go to Tools → Access Token Tool</li>
+                  <li>Generate a new System User Token</li>
+                  <li>Update the token in the form above</li>
+                </ol>
+              </div>
+              <button
+                onClick={() => {
+                  toast.dismiss(t.id);
+                  setShowTokenHelp(true);
+                }}
+                className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+              >
+                Show Token Generation Guide
+              </button>
+            </div>
+          ), {
+            duration: 15000,
+            icon: '🔐',
+          });
+        } else {
+          toast.error('❌ Token validation failed: ' + errorMsg);
+        }
       }
     } catch (error: any) {
       toast.error('Failed to check token health: ' + error.message);
@@ -504,7 +551,7 @@ export default function SettingsPage() {
           >
             <div className="flex items-center justify-center space-x-1 sm:space-x-2">
               <svg className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M16.373 3.07c-.059-.104-.213-.149-.304-.134l-1.49.244-.006-.006c-.314-.328-.738-.479-1.084-.479-.045 0-.088.003-.129.009-.021-.028-.044-.056-.067-.084-.487-.594-1.201-.861-1.937-.726-1.365.252-2.729 1.889-3.429 3.672-.487.246-1.205.609-1.365.691C5.4 6.515 5.37 6.546 5.326 6.725c-.041.135-1.092 3.366-1.092 3.366L12 11.576V3.099c-.045.003-.092.015-.134.027-.509.15-.838.51-.938.9-.238.094-.482.192-.727.292-.745-2.171-.998-3.157-1-.316-.375-.556-.827-.693-1.301-.04-.145-.062-.296-.062-.45 0-.081.003-.164.009-.248zm-.806 3.548l-.924.282c0-.002.001-.003.001-.003.009 0 .267-.842.453-1.34.178-.48.39-.918.616-1.292.229.21.398.488.476.734.15.476.03 1.117-.524 1.569m-.638-3.093c0 .061-.007.122-.012.183-.171.247-.376.631-.568 1.128l-.66-2.203c.195-.046.377-.046.528-.023.365.056.652.362.712.715zM14 7.366l-1.21.372c.233-.684.582-1.365 1.005-1.883.127-.156.268-.309.418-.452l-.213.963v1zm-1.698-2.81c.199-.006.372.017.535.064-.144.13-.285.279-.424.441-.549.645-1.004 1.553-1.309 2.558l-1.054.323c.39-1.414 1.294-3.323 2.252-3.386z"/>
+                <path d="M7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zM1 2v2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.14 0-.25-.11-.25-.25l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49c.08-.14.12-.31.12-.48 0-.55-.45-1-1-1H5.21l-.94-2H1zm16 16c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z" />
               </svg>
               <span>Shopify Store</span>
             </div>
@@ -1368,7 +1415,7 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-lg sm:text-xl font-semibold text-slate-900 flex items-center gap-3">
-                  <img src="/shopify-logo.png" alt="Shopify" className="w-8 h-8" />
+                  <img src="/icons/shopify-logo.png" alt="Shopify" className="w-8 h-8" />
                   Shopify Store
                 </h2>
                 <p className="text-sm text-slate-600 mt-1">

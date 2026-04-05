@@ -53,13 +53,32 @@ export class SettingsService {
   }
 
   async createWhatsAppIntegration(workspaceId: string, dto: CreateWhatsAppIntegrationDto) {
-    // Check if integration already exists
+    // Check if ACTIVE integration already exists (excluding soft-deleted ones)
     const existing = await this.prisma.whatsAppIntegration.findFirst({
-      where: { workspaceId },
+      where: { 
+        workspaceId,
+        deletedAt: null, // Only check for active integrations
+      },
     });
 
     if (existing) {
       throw new ConflictException('WhatsApp integration already exists for this workspace');
+    }
+
+    // Check if there are any disconnected integrations
+    const disconnected = await this.prisma.whatsAppIntegration.findFirst({
+      where: {
+        workspaceId,
+        deletedAt: { not: null }, // Check for soft-deleted integrations
+      },
+    });
+
+    // If there's a disconnected integration, permanently delete it before creating new one
+    if (disconnected) {
+      this.logger.log(`Permanently deleting disconnected integration ${disconnected.id} for workspace ${workspaceId}`);
+      await this.prisma.whatsAppIntegration.delete({
+        where: { id: disconnected.id },
+      });
     }
 
     // Check if phone number ID is already used by another workspace

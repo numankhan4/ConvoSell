@@ -34,10 +34,24 @@ model Workspace {
   id          String   @id @default(cuid())
   name        String
   slug        String   @unique
-  plan        String   @default("free") // free, starter, professional, enterprise
+  plan        String   @default("free") // free, starter, pro, business, enterprise
   isActive    Boolean  @default(true)
   maxMembers  Int      @default(3)
   maxContacts Int      @default(1000)
+  
+  // Subscription & Billing
+  subscriptionStatus  String   @default("active") // active, past_due, cancelled, trialing
+  subscriptionId      String?  // Stripe/Paddle subscription ID
+  stripeCustomerId    String?  // Stripe customer ID
+  billingEmail        String?
+  trialEndsAt         DateTime?
+  subscriptionEndsAt  DateTime?
+  
+  // Message Quotas (resets monthly)
+  templateMessagesLimit   Int      @default(0) // 0 for free, 50 starter, 200 pro, 1000 business, unlimited enterprise
+  templateMessagesUsed    Int      @default(0)
+  quotaResetAt            DateTime @default(now())
+  
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -52,8 +66,12 @@ model Workspace {
   shopifyStores        ShopifyStore[]
   outboxEvents         OutboxEvent[]
   auditLogs            AuditLog[]
+  whatsappTemplates    WhatsAppMessageTemplate[]
+  templateMessages     TemplateMessage[]
 
   @@index([slug])
+  @@index([subscriptionStatus])
+  @@index([quotaResetAt])
   @@map("workspaces")
 }
 
@@ -108,6 +126,91 @@ model WhatsAppIntegration {
   @@index([workspaceId])
   @@index([tokenExpiresAt]) // For finding expiring tokens
   @@map("whatsapp_integrations")
+}
+
+// ============================================================
+// WHATSAPP MESSAGE TEMPLATES
+// ============================================================
+
+model WhatsAppMessageTemplate {
+  id                String   @id @default(cuid())
+  workspaceId       String
+  name              String   // Template name (e.g., "order_confirmation")
+  category          String   @default("UTILITY") // UTILITY, MARKETING, AUTHENTICATION
+  language          String   @default("en") // en, ur, etc.
+  
+  // Template structure
+  headerType        String?  // TEXT, IMAGE, VIDEO, DOCUMENT
+  headerText        String?  // If headerType is TEXT
+  headerMediaUrl    String?  // If headerType is media
+  bodyText          String   @db.Text // Template body with {{1}} placeholders
+  footerText        String?
+  buttons           Json?    @default("[]") // Quick reply or CTA buttons
+  
+  // Variables (for documentation)
+  variables         Json?    @default("[]") // [{ name: "customer_name", example: "Ahmed" }]
+  
+  // Meta approval status
+  status            String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  metaTemplateId    String?  @unique // Meta's template ID after approval
+  rejectionReason   String?
+  
+  // Stats
+  sentCount         Int      @default(0)
+  deliveredCount    Int      @default(0)
+  readCount         Int      @default(0)
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  templateMessages TemplateMessage[]
+
+  @@unique([workspaceId, name, language])
+  @@index([workspaceId, status])
+  @@map("whatsapp_message_templates")
+}
+
+model TemplateMessage {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  templateId      String
+  
+  // Recipient details
+  recipientPhone  String // E.164 format
+  contactId       String?
+  orderId         String?
+  
+  // Template variables filled
+  headerParams    Json?    @default("[]") // Values for header placeholders
+  bodyParams      Json     @default("[]") // Values for body placeholders
+  buttonParams    Json?    @default("[]") // Values for button placeholders
+  
+  // WhatsApp delivery
+  whatsappMessageId String? @unique
+  status           String   @default("pending") // pending, sent, delivered, read, failed
+  errorCode        String?
+  errorMessage     String?
+  
+  // Cost tracking (PKR)
+  estimatedCost    Float?   // ~5-8 PKR per template
+  
+  sentAt           DateTime?
+  deliveredAt      DateTime?
+  readAt           DateTime?
+  failedAt         DateTime?
+  
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  workspace Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  template  WhatsAppMessageTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([templateId])
+  @@index([status])
+  @@index([recipientPhone])
+  @@map("template_messages")
 }
 
 // ============================================================

@@ -17,6 +17,7 @@ import { AutomationsModule } from './automations/automations.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { JobsModule } from './jobs/jobs.module';
 import { SettingsModule } from './settings/settings.module';
+import { TemplatesModule } from './templates/templates.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { SettingsModule } from './settings/settings.module';
     WebhooksModule,
     JobsModule,
     SettingsModule,
+    TemplatesModule,
   ],
 })
 export class AppModule {}
