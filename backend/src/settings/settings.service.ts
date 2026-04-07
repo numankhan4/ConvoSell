@@ -589,7 +589,7 @@ export class SettingsService {
       throw new NotFoundException('Shopify store not found');
     }
 
-    const token = accessToken || await this.getShopifyAccessToken(workspaceId);
+    const token = accessToken || store.oauthAccessToken || store.accessToken || await this.getShopifyAccessToken(workspaceId);
     const domain = shopDomain || store.shopDomain;
 
     // Get webhook base URL from environment or use ngrok
@@ -608,6 +608,10 @@ export class SettingsService {
       },
       {
         topic: 'ORDERS_CANCELLED',
+        callbackUrl: `${webhookBaseUrl}/api/shopify/webhook`,
+      },
+      {
+        topic: 'ORDERS_DELETE',
         callbackUrl: `${webhookBaseUrl}/api/shopify/webhook`,
       },
     ];
@@ -1092,13 +1096,14 @@ export class SettingsService {
           '5. Format: JSON',
           '6. URL: Paste the Callback URL above',
           '7. Click "Save webhook"',
-          '8. Repeat for Order updates and Order cancelled events (use same URL)',
+          '8. Repeat for Order updates, Order cancelled, and Order deleted events (use same URL)',
         ],
         note: 'The same webhook URL handles all order events. Shopify sends the event type in the x-shopify-topic header.',
         requiredWebhooks: [
           'orders/create - Required for new orders',
           'orders/updated - Required for order status changes',
-          'orders/cancelled - Optional for cancelled orders',
+          'orders/cancelled - Required for cancellation sync',
+          'orders/delete - Required for deletion sync',
         ],
       },
     };

@@ -95,7 +95,7 @@ export default function DashboardPage() {
           <StatCard
             title="Total Revenue"
             value={`PKR ${stats?.totalRevenue?.toLocaleString() || 0}`}
-            change="From confirmed orders"
+            change="From confirmed + completed orders"
             trend="up"
             icon={
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -130,6 +130,27 @@ export default function DashboardPage() {
           color="yellow"
         />
       </div>
+
+      {/* Revenue Breakdown */}
+      <PermissionGate permission={Permissions.ANALYTICS_VIEW_REVENUE}>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
+            <p className="text-sm text-slate-600">Expected Revenue</p>
+            <p className="text-2xl font-bold text-green-700 mt-1">PKR {stats?.expectedRevenue?.toLocaleString() || 0}</p>
+            <p className="text-xs text-slate-500 mt-1">Confirmed + Completed</p>
+          </div>
+          <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
+            <p className="text-sm text-slate-600">Realized Revenue</p>
+            <p className="text-2xl font-bold text-blue-700 mt-1">PKR {stats?.realizedRevenue?.toLocaleString() || 0}</p>
+            <p className="text-xs text-slate-500 mt-1">Completed only</p>
+          </div>
+          <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
+            <p className="text-sm text-slate-600">Pending Value</p>
+            <p className="text-2xl font-bold text-amber-700 mt-1">PKR {stats?.pendingValue?.toLocaleString() || 0}</p>
+            <p className="text-xs text-slate-500 mt-1">Awaiting confirmation</p>
+          </div>
+        </div>
+      </PermissionGate>
 
       {/* Secondary Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

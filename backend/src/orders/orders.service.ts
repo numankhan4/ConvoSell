@@ -174,7 +174,9 @@ export class OrdersService {
       confirmedOrders,
       cancelledOrders,
       completedOrders,
-      totalRevenue,
+      expectedRevenue,
+      realizedRevenue,
+      pendingValue,
       avgResponseTime,
     ] = await Promise.all([
       this.prisma.order.count({ where: baseWhere }),
@@ -184,6 +186,14 @@ export class OrdersService {
       this.prisma.order.count({ where: { ...baseWhere, status: 'completed' } }),
       this.prisma.order.aggregate({
         where: { ...baseWhere, status: { in: ['confirmed', 'completed'] } },
+        _sum: { totalAmount: true },
+      }),
+      this.prisma.order.aggregate({
+        where: { ...baseWhere, status: 'completed' },
+        _sum: { totalAmount: true },
+      }),
+      this.prisma.order.aggregate({
+        where: { ...baseWhere, status: 'pending' },
         _sum: { totalAmount: true },
       }),
       this.prisma.order.aggregate({
@@ -202,7 +212,11 @@ export class OrdersService {
       confirmedOrders,
       cancelledOrders,
       completedOrders,
-      totalRevenue: totalRevenue._sum.totalAmount || 0,
+      // Backward-compatible alias used by current dashboard card.
+      totalRevenue: expectedRevenue._sum.totalAmount || 0,
+      expectedRevenue: expectedRevenue._sum.totalAmount || 0,
+      realizedRevenue: realizedRevenue._sum.totalAmount || 0,
+      pendingValue: pendingValue._sum.totalAmount || 0,
       avgResponseTime: avgResponseTime._avg.responseTimeMinutes || null,
     };
   }

@@ -37,8 +37,10 @@ async function checkShopifyWebhooks() {
     console.log(`   ✓ Token Type: ${store.tokenType || 'N/A'}`);
     console.log(`   ✓ Active: ${store.isActive}`);
 
+    const token = store.oauthAccessToken || store.accessToken;
+
     // Check if store has access token
-    if (!store.accessToken) {
+    if (!token) {
       console.log('   ❌ No access token - OAuth connection needed');
       continue;
     }
@@ -50,7 +52,7 @@ async function checkShopifyWebhooks() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Shopify-Access-Token': store.accessToken,
+          'X-Shopify-Access-Token': token,
         },
         body: JSON.stringify({
           query: `{
@@ -107,7 +109,7 @@ async function checkShopifyWebhooks() {
 
       // Check for required webhooks
       const topics = webhooks.map((e: any) => e.node.topic);
-      const required = ['ORDERS_CREATE', 'ORDERS_UPDATED'];
+      const required = ['ORDERS_CREATE', 'ORDERS_UPDATED', 'ORDERS_CANCELLED', 'ORDERS_DELETE'];
       const missing = required.filter(t => !topics.includes(t));
 
       if (missing.length > 0) {

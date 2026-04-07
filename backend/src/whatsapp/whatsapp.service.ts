@@ -368,7 +368,7 @@ export class WhatsAppService {
           bodyParams: bodyParams || [],
           buttonParams: buttonParams || [],
           status: 'failed',
-          errorMessage: error.message,
+          errorMessage: error instanceof Error ? error.message : String(error),
           failedAt: new Date(),
         },
       });
@@ -671,6 +671,12 @@ export class WhatsAppService {
             message.interactive.button_reply,
             dbContact.id,
           );
+        } else if (message.type === 'text' && message.text?.body) {
+          await this.handlePlainTextOrderResponse(
+            integration.workspaceId,
+            dbContact.id,
+            message.text.body,
+          );
         }
       } else {
         this.logger.log(`Duplicate message ignored: ${message.id}`);
@@ -724,12 +730,159 @@ export class WhatsAppService {
   }
 
   /**
+   * Handle plain text replies like "yes"/"no" for pending order confirmations.
+   */
+  private async handlePlainTextOrderResponse(
+    workspaceId: string,
+    contactId: string,
+    text: string,
+  ): Promise<void> {
+    try {
+      const intent = this.parseOrderResponseIntent(text);
+      if (!intent) {
+        await this.handlePlainTextFeedbackReason(workspaceId, contactId, text);
+        return;
+      }
+
+      const pendingOrder = await this.prisma.order.findFirst({
+        where: {
+          workspaceId,
+          contactId,
+          status: 'pending',
+          confirmationSentAt: { not: null },
+        },
+        orderBy: {
+          confirmationSentAt: 'desc',
+        },
+        select: { id: true },
+      });
+
+      if (!pendingOrder) {
+        this.logger.log(`No pending confirmation order found for text reply: ${text}`);
+        return;
+      }
+
+      this.logger.log(
+        `Processing plain text order response: "${text}" -> ${intent} for order ${pendingOrder.id}`,
+      );
+
+      if (intent === 'confirm') {
+        await this.confirmOrder(workspaceId, pendingOrder.id, contactId, 'whatsapp_text');
+      } else {
+        await this.cancelOrder(workspaceId, pendingOrder.id, contactId, 'whatsapp_text');
+      }
+    } catch (error) {
+      this.logger.error('Error handling plain text order response:', error);
+    }
+  }
+
+  /**
+   * Map plain text to confirmation intent.
+   */
+  private parseOrderResponseIntent(text: string): 'confirm' | 'cancel' | null {
+    const normalized = (text || '').trim().toLowerCase();
+    if (!normalized) return null;
+
+    const confirmWords = new Set([
+      'yes',
+      'y',
+      'ok',
+      'okay',
+      'confirm',
+      'confirmed',
+      'done',
+      'sure',
+    ]);
+
+    const cancelWords = new Set([
+      'no',
+      'n',
+      'cancel',
+      'cancelled',
+      'canceled',
+      'stop',
+      'reject',
+    ]);
+
+    if (confirmWords.has(normalized)) return 'confirm';
+    if (cancelWords.has(normalized)) return 'cancel';
+    return null;
+  }
+
+  /**
+   * Parse a free-text cancellation reason.
+   */
+  private parseFeedbackReason(text: string): 'wrong_item' | 'changed_mind' | 'price' | null {
+    const normalized = (text || '').trim().toLowerCase();
+    if (!normalized) return null;
+
+    if (normalized.includes('wrong') || normalized.includes('item')) {
+      return 'wrong_item';
+    }
+
+    if (
+      normalized.includes('changed') ||
+      normalized.includes('mind') ||
+      normalized.includes('dont want') ||
+      normalized.includes("don't want")
+    ) {
+      return 'changed_mind';
+    }
+
+    if (normalized.includes('price') || normalized.includes('expensive') || normalized.includes('cost')) {
+      return 'price';
+    }
+
+    return null;
+  }
+
+  /**
+   * Handle plain-text feedback after cancellation when customer does not click buttons.
+   */
+  private async handlePlainTextFeedbackReason(
+    workspaceId: string,
+    contactId: string,
+    text: string,
+  ): Promise<void> {
+    const reason = this.parseFeedbackReason(text);
+    if (!reason) return;
+
+    const cancelledOrder = await this.prisma.order.findFirst({
+      where: {
+        workspaceId,
+        contactId,
+        status: 'cancelled',
+        cancelledAt: { not: null },
+        feedbackReason: null,
+      },
+      orderBy: {
+        cancelledAt: 'desc',
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!cancelledOrder) {
+      this.logger.log(`No cancelled order awaiting feedback for text reply: ${text}`);
+      return;
+    }
+
+    this.logger.log(
+      `Processing plain text feedback: "${text}" -> ${reason} for order ${cancelledOrder.id}`,
+    );
+
+    await this.saveFeedbackForOrder(cancelledOrder.id, reason, 'whatsapp_text');
+  }
+
+  /**
    * Confirm an order
    */
   private async confirmOrder(
     workspaceId: string,
     orderId: string,
     contactId: string,
+    responseMethod: 'whatsapp_button' | 'whatsapp_text' = 'whatsapp_button',
   ): Promise<void> {
     try {
       // Verify the order exists and belongs to this contact
@@ -830,7 +983,7 @@ export class WhatsAppService {
           entityId: orderId,
           metadata: { 
             contactId, 
-            method: 'whatsapp_button',
+            method: responseMethod,
             responseTimeMinutes,
           },
         },
@@ -849,6 +1002,7 @@ export class WhatsAppService {
     workspaceId: string,
     orderId: string,
     contactId: string,
+    responseMethod: 'whatsapp_button' | 'whatsapp_text' = 'whatsapp_button',
   ): Promise<void> {
     try {
       // Verify the order exists and belongs to this contact
@@ -914,7 +1068,8 @@ export class WhatsAppService {
           : '';
         
         const cancellationMessage = `Your order #${order.externalOrderNumber || order.externalOrderId} has been cancelled. ${refundMessage}\n\n` +
-          `Could you tell us why you cancelled? This helps us improve our service.`;
+          `Could you tell us why you cancelled? This helps us improve our service.\n` +
+          `You can tap a button below or reply in text (wrong item / changed mind / price issue).`;
 
         await this.sendButtonMessage(
           workspaceId,
@@ -957,7 +1112,7 @@ export class WhatsAppService {
           entityId: orderId,
           metadata: { 
             contactId, 
-            method: 'whatsapp_button',
+            method: responseMethod,
             cancellationCount,
           },
         },
@@ -1227,6 +1382,22 @@ export class WhatsAppService {
       const orderId = parts[parts.length - 1]; // Last part is always order ID
       const reason = parts.slice(0, -1).join('_'); // Everything before last part is reason
 
+      await this.saveFeedbackForOrder(orderId, reason, 'whatsapp_button');
+    } catch (error: any) {
+      this.logger.error(`❌ Failed to handle feedback response: ${error?.message || error}`);
+    }
+  }
+
+  /**
+   * Persist cancellation feedback and sync to Shopify.
+   */
+  private async saveFeedbackForOrder(
+    orderId: string,
+    reason: string,
+    source: 'whatsapp_button' | 'whatsapp_text',
+  ): Promise<void> {
+    try {
+
       this.logger.log(`🔍 FEEDBACK START: Reason="${reason}", OrderID="${orderId}"`);
 
       // Check current status BEFORE update
@@ -1287,7 +1458,13 @@ export class WhatsAppService {
             await this.shopifyService.addOrderNote(
               order.shopifyStore.id,
               order.externalOrderId,
-              `💬 Customer feedback: ${reasonLabel} (via WhatsApp at ${new Date().toLocaleString()})`,
+              `💬 Customer feedback: ${reasonLabel} (via ${source} at ${new Date().toLocaleString()})`,
+            );
+
+            await this.shopifyService.addOrderTags(
+              order.shopifyStore.id,
+              order.externalOrderId,
+              ['whatsapp-feedback-received'],
             );
 
             this.logger.log(`Added feedback to Shopify order ${order.externalOrderId}: ${reasonLabel}`);
@@ -1312,7 +1489,7 @@ export class WhatsAppService {
 
       this.logger.log(`✅ FEEDBACK COMPLETE: ${reason} for order ${orderId}`);
     } catch (error: any) {
-      this.logger.error(`❌ Failed to handle feedback response: ${error?.message || error}`);
+      this.logger.error(`❌ Failed to persist feedback response: ${error?.message || error}`);
     }
   }
 }

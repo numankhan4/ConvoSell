@@ -29,6 +29,15 @@ export class ShopifyService {
   }
 
   /**
+   * Normalize external Shopify order IDs (supports numeric IDs and gid:// formats).
+   */
+  private normalizeExternalOrderId(externalOrderId: string): string {
+    const raw = String(externalOrderId || '').trim();
+    const match = raw.match(/(\d+)$/);
+    return match ? match[1] : raw;
+  }
+
+  /**
    * Handle Shopify order creation webhook
    */
   async handleOrderCreated(workspaceId: string, orderData: any) {
@@ -358,6 +367,51 @@ export class ShopifyService {
   }
 
   /**
+   * Force re-sync a single Shopify order by external Shopify order ID.
+   * Useful for recovering past missed webhook events.
+   */
+  async resyncOrderByExternalId(workspaceId: string, externalOrderId: string) {
+    const store = await this.prisma.shopifyStore.findFirst({
+      where: {
+        workspaceId,
+        isActive: true,
+      },
+    });
+
+    if (!store) {
+      throw new BadRequestException('No active Shopify store found for this workspace');
+    }
+
+    const { baseUrl, headers } = await this.getShopifyClient(store.id);
+
+    let orderData: any;
+    const normalizedOrderId = this.normalizeExternalOrderId(externalOrderId);
+    try {
+      const response = await firstValueFrom(
+        this.httpService.get(`${baseUrl}/orders/${normalizedOrderId}.json`, { headers }),
+      );
+      orderData = response.data?.order;
+    } catch (error: any) {
+      throw new BadRequestException(
+        `Failed to fetch Shopify order ${normalizedOrderId}: ${error?.response?.data?.errors || error?.message || 'Unknown error'}`,
+      );
+    }
+
+    if (!orderData?.id) {
+      throw new BadRequestException(`Shopify order not found: ${externalOrderId}`);
+    }
+
+    const syncedOrder = await this.handleOrderUpdated(workspaceId, orderData);
+
+    return {
+      externalOrderId,
+      localOrderId: syncedOrder?.id,
+      status: syncedOrder?.status,
+      syncedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
    * Process order fulfillment update
    */
   async handleFulfillmentUpdate(workspaceId: string, fulfillmentData: any) {
@@ -518,10 +572,11 @@ export class ShopifyService {
   ): Promise<void> {
     try {
       const { baseUrl, headers } = await this.getShopifyClient(shopifyStoreId);
+      const normalizedOrderId = this.normalizeExternalOrderId(externalOrderId);
 
       // Get current order first to append to existing notes
       const getResponse = await firstValueFrom(
-        this.httpService.get(`${baseUrl}/orders/${externalOrderId}.json`, { headers }),
+        this.httpService.get(`${baseUrl}/orders/${normalizedOrderId}.json`, { headers }),
       );
 
       const currentNote = getResponse.data.order.note || '';
@@ -532,10 +587,9 @@ export class ShopifyService {
       // Update order with appended note
       await firstValueFrom(
         this.httpService.put(
-          `${baseUrl}/orders/${externalOrderId}.json`,
+          `${baseUrl}/orders/${normalizedOrderId}.json`,
           {
             order: {
-              id: parseInt(externalOrderId),
               note: updatedNote,
             },
           },
@@ -543,7 +597,7 @@ export class ShopifyService {
         ),
       );
 
-      this.logger.log(`Added note to Shopify order ${externalOrderId}`);
+      this.logger.log(`Added note to Shopify order ${normalizedOrderId}`);
     } catch (error: any) {
       this.logger.error(
         `Failed to add note to Shopify order ${externalOrderId}: ${error.message}`,
@@ -564,10 +618,11 @@ export class ShopifyService {
   ): Promise<void> {
     try {
       const { baseUrl, headers } = await this.getShopifyClient(shopifyStoreId);
+      const normalizedOrderId = this.normalizeExternalOrderId(externalOrderId);
 
       // Get current order to preserve existing tags
       const getResponse = await firstValueFrom(
-        this.httpService.get(`${baseUrl}/orders/${externalOrderId}.json`, { headers }),
+        this.httpService.get(`${baseUrl}/orders/${normalizedOrderId}.json`, { headers }),
       );
 
       const currentTags = getResponse.data.order.tags || '';
@@ -579,10 +634,9 @@ export class ShopifyService {
       // Update order with merged tags
       await firstValueFrom(
         this.httpService.put(
-          `${baseUrl}/orders/${externalOrderId}.json`,
+          `${baseUrl}/orders/${normalizedOrderId}.json`,
           {
             order: {
-              id: parseInt(externalOrderId),
               tags: allTags.join(', '),
             },
           },
@@ -590,7 +644,7 @@ export class ShopifyService {
         ),
       );
 
-      this.logger.log(`Added tags to Shopify order ${externalOrderId}: ${tags.join(', ')}`);
+      this.logger.log(`Added tags to Shopify order ${normalizedOrderId}: ${tags.join(', ')}`);
     } catch (error: any) {
       this.logger.error(
         `Failed to add tags to Shopify order ${externalOrderId}: ${error.message}`,
@@ -612,10 +666,11 @@ export class ShopifyService {
   ): Promise<void> {
     try {
       const { baseUrl, headers } = await this.getShopifyClient(shopifyStoreId);
+      const normalizedOrderId = this.normalizeExternalOrderId(externalOrderId);
 
       // Check if order can be cancelled
       const orderResponse = await firstValueFrom(
-        this.httpService.get(`${baseUrl}/orders/${externalOrderId}.json`, { headers }),
+        this.httpService.get(`${baseUrl}/orders/${normalizedOrderId}.json`, { headers }),
       );
 
       const order = orderResponse.data.order;
@@ -633,7 +688,7 @@ export class ShopifyService {
       // Cancel the order
       await firstValueFrom(
         this.httpService.post(
-          `${baseUrl}/orders/${externalOrderId}/cancel.json`,
+          `${baseUrl}/orders/${normalizedOrderId}/cancel.json`,
           {
             reason: reason, // 'customer', 'inventory', 'fraud', 'declined', 'other'
             email: false, // Don't send Shopify cancellation email (we handle via WhatsApp)
@@ -645,10 +700,10 @@ export class ShopifyService {
 
       // Add cancellation note if provided
       if (note) {
-        await this.addOrderNote(shopifyStoreId, externalOrderId, note);
+        await this.addOrderNote(shopifyStoreId, normalizedOrderId, note);
       }
 
-      this.logger.log(`Cancelled Shopify order ${externalOrderId}`);
+      this.logger.log(`Cancelled Shopify order ${normalizedOrderId}`);
     } catch (error: any) {
       this.logger.error(
         `Failed to cancel Shopify order ${externalOrderId}: ${error.message}`,
@@ -668,17 +723,18 @@ export class ShopifyService {
   ): Promise<void> {
     try {
       const { baseUrl, headers, store } = await this.getShopifyClient(shopifyStoreId);
+      const normalizedOrderId = this.normalizeExternalOrderId(externalOrderId);
 
       // Get order details to get line items
       const orderResponse = await firstValueFrom(
-        this.httpService.get(`${baseUrl}/orders/${externalOrderId}.json`, { headers }),
+        this.httpService.get(`${baseUrl}/orders/${normalizedOrderId}.json`, { headers }),
       );
 
       const order = orderResponse.data.order;
       
       // Check if already fulfilled
       if (order.fulfillment_status === 'fulfilled' || order.fulfillment_status === 'partial') {
-        this.logger.warn(`Order ${externalOrderId} already has fulfillment status: ${order.fulfillment_status}`);
+        this.logger.warn(`Order ${normalizedOrderId} already has fulfillment status: ${order.fulfillment_status}`);
         return;
       }
 
@@ -688,7 +744,7 @@ export class ShopifyService {
       })).filter((item: any) => item.quantity > 0);
 
       if (lineItems.length === 0) {
-        this.logger.warn(`No fulfillable items for order ${externalOrderId}`);
+        this.logger.warn(`No fulfillable items for order ${normalizedOrderId}`);
         return;
       }
 
@@ -711,7 +767,7 @@ export class ShopifyService {
         ),
       );
 
-      this.logger.log(`Created fulfillment for Shopify order ${externalOrderId}`);
+      this.logger.log(`Created fulfillment for Shopify order ${normalizedOrderId}`);
     } catch (error: any) {
       const errorMsg = error.response?.data?.errors || error.message;
       
@@ -741,13 +797,13 @@ export class ShopifyService {
   ): Promise<void> {
     try {
       const { baseUrl, headers } = await this.getShopifyClient(shopifyStoreId);
+      const normalizedOrderId = this.normalizeExternalOrderId(externalOrderId);
 
       await firstValueFrom(
         this.httpService.put(
-          `${baseUrl}/orders/${externalOrderId}.json`,
+          `${baseUrl}/orders/${normalizedOrderId}.json`,
           {
             order: {
-              id: externalOrderId,
               financial_status: status,
             },
           },

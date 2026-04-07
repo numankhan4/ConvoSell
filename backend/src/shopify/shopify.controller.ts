@@ -1,10 +1,41 @@
-import { Controller, Post, Headers, Body, RawBodyRequest, Req } from '@nestjs/common';
+import { Controller, Post, Headers, Body, UseGuards, BadRequestException } from '@nestjs/common';
 import { ShopifyService } from './shopify.service';
 import { Public } from '../common/decorators/public.decorator';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { TenantGuard } from '../common/guards/tenant.guard';
+import { Roles } from '../common/guards/roles.guard';
+import { WorkspaceId } from '../common/decorators/user.decorator';
 
 @Controller('shopify')
 export class ShopifyController {
   constructor(private shopifyService: ShopifyService) {}
+
+  /**
+   * POST /api/shopify/admin/resync-order
+   * Force re-sync one Shopify order by external Shopify order ID.
+   */
+  @Post('admin/resync-order')
+  @UseGuards(JwtAuthGuard, TenantGuard)
+  @Roles('owner', 'admin')
+  async resyncOrder(
+    @WorkspaceId() workspaceId: string,
+    @Body() body: { externalOrderId: string },
+  ) {
+    if (!body?.externalOrderId) {
+      throw new BadRequestException('externalOrderId is required');
+    }
+
+    const result = await this.shopifyService.resyncOrderByExternalId(
+      workspaceId,
+      body.externalOrderId,
+    );
+
+    return {
+      success: true,
+      message: `Order ${body.externalOrderId} re-synced successfully`,
+      result,
+    };
+  }
 
   /**
    * GET /api/shopify/webhook/test

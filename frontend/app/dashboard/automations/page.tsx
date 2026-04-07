@@ -29,6 +29,18 @@ interface Automation {
   createdAt: string;
 }
 
+interface QuickAutomationPreset {
+  key: string;
+  icon: string;
+  cardColorClass: string;
+  title: string;
+  description: string;
+  name: string;
+  triggerType: string;
+  paymentMethod: string;
+  template: string;
+}
+
 export default function AutomationsPage() {
   const { role } = usePermissions();
   const [automations, setAutomations] = useState<Automation[]>([]);
@@ -152,6 +164,23 @@ export default function AutomationsPage() {
       parts.push(`Status: ${conditions.status}`);
     }
     return parts.join(', ') || 'All orders';
+  };
+
+  const openCreateFromPreset = (preset: QuickAutomationPreset) => {
+    setInitialFormData({
+      name: preset.name,
+      description: preset.description,
+      triggerType: preset.triggerType,
+      conditions: { paymentMethod: preset.paymentMethod },
+      actions: [
+        {
+          type: 'send_message',
+          template: preset.template,
+          useButtons: false,
+        },
+      ],
+    });
+    setShowCreateModal(true);
   };
 
   return (
@@ -296,138 +325,10 @@ export default function AutomationsPage() {
             <p className="text-sm text-slate-600 mb-4">
               Get started with these popular automation templates for all Shopify payment types:
             </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            <button
-              onClick={() => {
-                setInitialFormData({
-                  name: 'COD Order Confirmation',
-                  description: 'Send confirmation for COD / Due on fulfillment orders',
-                  triggerType: 'order_created',
-                  conditions: { paymentMethod: 'cod' },
-                  actions: [{
-                    type: 'send_message',
-                    template: MESSAGE_TEMPLATES.cod_confirmation,
-                    useButtons: false,
-                  }],
-                });
-                setShowCreateModal(true);
-              }}
-              className="text-left p-4 bg-white rounded-lg border border-slate-200 hover:border-primary-300 hover:shadow-md transition-all"
-            >
-              <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center mb-3">
-                <span className="text-xl">💰</span>
-              </div>
-              <h4 className="font-semibold text-slate-900">COD Confirmation</h4>
-              <p className="text-xs text-slate-600 mt-1">Auto-confirm COD/fulfillment orders</p>
-            </button>
-
-            <button
-              onClick={() => {
-                setInitialFormData({
-                  name: 'Prepaid Order Thank You',
-                  description: 'Thank customers for prepaid orders',
-                  triggerType: 'order_created',
-                  conditions: { paymentMethod: 'prepaid' },
-                  actions: [{
-                    type: 'send_message',
-                    template: MESSAGE_TEMPLATES.prepaid_confirmation,
-                    useButtons: false,
-                  }],
-                });
-                setShowCreateModal(true);
-              }}
-              className="text-left p-4 bg-white rounded-lg border border-slate-200 hover:border-primary-300 hover:shadow-md transition-all"
-            >
-              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center mb-3">
-                <span className="text-xl">💳</span>
-              </div>
-              <h4 className="font-semibold text-slate-900">Prepaid Thank You</h4>
-              <p className="text-xs text-slate-600 mt-1">Thank customers for paid orders</p>
-            </button>
-
-            <button
-              onClick={() => {
-                setInitialFormData({
-                  name: 'Welcome All Orders',
-                  description: 'Send welcome message for all orders (COD + Prepaid)',
-                  triggerType: 'order_created',
-                  conditions: { paymentMethod: '' },
-                  actions: [{
-                    type: 'send_message',
-                    template: MESSAGE_TEMPLATES.all_orders_welcome,
-                    useButtons: false,
-                  }],
-                });
-                setShowCreateModal(true);
-              }}
-              className="text-left p-4 bg-white rounded-lg border border-slate-200 hover:border-primary-300 hover:shadow-md transition-all"
-            >
-              <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center mb-3">
-                <span className="text-xl">🎉</span>
-              </div>
-              <h4 className="font-semibold text-slate-900">All Orders Welcome</h4>
-              <p className="text-xs text-slate-600 mt-1">Welcome every order type</p>
-            </button>
-
-            <button
-              onClick={() => {
-                setInitialFormData({
-                  name: 'COD Reminder (24h)',
-                  description: 'Reminder for unconfirmed COD orders after 24 hours',
-                  triggerType: 'no_reply',
-                  conditions: { paymentMethod: 'cod' },
-                  actions: [{
-                    type: 'send_message',
-                    template: MESSAGE_TEMPLATES.cod_reminder,
-                    useButtons: false,
-                  }],
-                });
-                setShowCreateModal(true);
-              }}
-              className="text-left p-4 bg-white rounded-lg border border-slate-200 hover:border-primary-300 hover:shadow-md transition-all"
-            >
-              <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center mb-3">
-                <span className="text-xl">⏰</span>
-              </div>
-              <h4 className="font-semibold text-slate-900">COD Reminder</h4>
-              <p className="text-xs text-slate-600 mt-1">Remind after 24h no reply</p>
-            </button>
-
-            <button
-              onClick={() => {
-                setInitialFormData({
-                  name: 'Shipment Notification',
-                  description: 'Notify customer when order is shipped/fulfilled',
-                  triggerType: 'order_created',
-                  conditions: { paymentMethod: '' },
-                  actions: [{
-                    type: 'send_message',
-                    template: MESSAGE_TEMPLATES.shipment_notification,
-                    useButtons: false,
-                  }],
-                });
-                setShowCreateModal(true);
-              }}
-              className="text-left p-4 bg-white rounded-lg border border-slate-200 hover:border-primary-300 hover:shadow-md transition-all"
-            >
-              <div className="w-10 h-10 bg-cyan-100 rounded-lg flex items-center justify-center mb-3">
-                <span className="text-xl">🚚</span>
-              </div>
-              <h4 className="font-semibold text-slate-900">Shipment Alert</h4>
-              <p className="text-xs text-slate-600 mt-1">Notify when order ships</p>
-            </button>
-
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="text-left p-4 bg-white rounded-lg border border-slate-200 hover:border-primary-300 hover:shadow-md transition-all"
-            >
-              <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center mb-3">
-                <span className="text-xl">⚡</span>
-              </div>
-              <h4 className="font-semibold text-slate-900">Custom Automation</h4>
-              <p className="text-xs text-slate-600 mt-1">Build your own rule</p>
-            </button>
-          </div>
+            <AutomationQuickTemplatePicker
+              onSelect={openCreateFromPreset}
+              onSelectCustom={() => setShowCreateModal(true)}
+            />
         </div>
         </>
         </PermissionGate>
@@ -741,6 +642,125 @@ We'll notify you once it's delivered. Track your order on our website.
 Thank you for shopping with us!`,
 };
 
+const QUICK_AUTOMATION_PRESETS: QuickAutomationPreset[] = [
+  {
+    key: 'cod_confirmation',
+    icon: '💰',
+    cardColorClass: 'bg-green-100',
+    title: 'COD Confirmation',
+    description: 'Auto-confirm COD/fulfillment orders',
+    name: 'COD Order Confirmation',
+    triggerType: 'order_created',
+    paymentMethod: 'cod',
+    template: MESSAGE_TEMPLATES.cod_confirmation,
+  },
+  {
+    key: 'prepaid_confirmation',
+    icon: '💳',
+    cardColorClass: 'bg-blue-100',
+    title: 'Prepaid Thank You',
+    description: 'Thank customers for paid orders',
+    name: 'Prepaid Order Thank You',
+    triggerType: 'order_created',
+    paymentMethod: 'prepaid',
+    template: MESSAGE_TEMPLATES.prepaid_confirmation,
+  },
+  {
+    key: 'all_orders_welcome',
+    icon: '🎉',
+    cardColorClass: 'bg-indigo-100',
+    title: 'All Orders Welcome',
+    description: 'Welcome every order type',
+    name: 'Welcome All Orders',
+    triggerType: 'order_created',
+    paymentMethod: '',
+    template: MESSAGE_TEMPLATES.all_orders_welcome,
+  },
+  {
+    key: 'cod_reminder',
+    icon: '⏰',
+    cardColorClass: 'bg-amber-100',
+    title: 'COD Reminder',
+    description: 'Remind after 24h no reply',
+    name: 'COD Reminder (24h)',
+    triggerType: 'no_reply',
+    paymentMethod: 'cod',
+    template: MESSAGE_TEMPLATES.cod_reminder,
+  },
+  {
+    key: 'shipment_notification',
+    icon: '🚚',
+    cardColorClass: 'bg-cyan-100',
+    title: 'Shipment Alert',
+    description: 'Notify when order ships',
+    name: 'Shipment Notification',
+    triggerType: 'order_created',
+    paymentMethod: '',
+    template: MESSAGE_TEMPLATES.shipment_notification,
+  },
+];
+
+function AutomationQuickTemplatePicker({
+  onSelect,
+  onSelectCustom,
+  variant = 'grid',
+}: {
+  onSelect: (preset: QuickAutomationPreset) => void;
+  onSelectCustom?: () => void;
+  variant?: 'grid' | 'list';
+}) {
+  if (variant === 'list') {
+    return (
+      <div className="space-y-2">
+        {QUICK_AUTOMATION_PRESETS.map((preset) => (
+          <button
+            key={preset.key}
+            type="button"
+            onClick={() => onSelect(preset)}
+            className="w-full text-left px-3 py-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+          >
+            <p className="text-sm font-medium text-slate-900">{preset.icon} {preset.title}</p>
+            <p className="text-xs text-slate-500 mt-1">{preset.description}</p>
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+      {QUICK_AUTOMATION_PRESETS.map((preset) => (
+        <button
+          key={preset.key}
+          type="button"
+          onClick={() => onSelect(preset)}
+          className="text-left p-4 bg-white rounded-lg border border-slate-200 hover:border-primary-300 hover:shadow-md transition-all"
+        >
+          <div className={`w-10 h-10 ${preset.cardColorClass} rounded-lg flex items-center justify-center mb-3`}>
+            <span className="text-xl">{preset.icon}</span>
+          </div>
+          <h4 className="font-semibold text-slate-900">{preset.title}</h4>
+          <p className="text-xs text-slate-600 mt-1">{preset.description}</p>
+        </button>
+      ))}
+
+      {onSelectCustom && (
+        <button
+          type="button"
+          onClick={onSelectCustom}
+          className="text-left p-4 bg-white rounded-lg border border-slate-200 hover:border-primary-300 hover:shadow-md transition-all"
+        >
+          <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center mb-3">
+            <span className="text-xl">⚡</span>
+          </div>
+          <h4 className="font-semibold text-slate-900">Custom Automation</h4>
+          <p className="text-xs text-slate-600 mt-1">Build your own rule</p>
+        </button>
+      )}
+    </div>
+  );
+}
+
 // Create Automation Modal Component
 function CreateAutomationModal({ 
   initialData, 
@@ -814,6 +834,24 @@ function CreateAutomationModal({
     setFormData({ ...formData, actions: newActions });
   };
 
+  const applyPreset = (preset: QuickAutomationPreset) => {
+    setFormData({
+      name: preset.name,
+      description: preset.description,
+      triggerType: preset.triggerType,
+      conditions: {
+        paymentMethod: preset.paymentMethod,
+      },
+      actions: [
+        {
+          type: 'send_message',
+          template: preset.template,
+          useButtons: false,
+        },
+      ],
+    });
+  };
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
@@ -879,6 +917,17 @@ function CreateAutomationModal({
                   placeholder="Describe what this automation does..."
                   rows={3}
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                />
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm font-medium text-slate-800 mb-1">Quick template selection</p>
+                <p className="text-xs text-slate-500 mb-3">
+                  Pick a starter and adjust it later in Step 3.
+                </p>
+                <AutomationQuickTemplatePicker
+                  onSelect={applyPreset}
+                  variant="list"
                 />
               </div>
             </div>
@@ -980,61 +1029,13 @@ function CreateAutomationModal({
                     {showTemplates && (
                       <div className="mb-4 space-y-2 bg-slate-50 rounded-lg p-4 border border-slate-200">
                         <p className="text-sm font-medium text-slate-700 mb-2">Choose a template:</p>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            updateAction(0, 'template', MESSAGE_TEMPLATES.cod_confirmation);
+                        <AutomationQuickTemplatePicker
+                          onSelect={(preset) => {
+                            updateAction(0, 'template', preset.template);
                             setShowTemplates(false);
                           }}
-                          className="w-full text-left px-3 py-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-                        >
-                          <p className="text-sm font-medium text-slate-900">💰 COD Order Confirmation</p>
-                          <p className="text-xs text-slate-500 mt-1">Request YES/NO confirmation for COD/Due on fulfillment orders</p>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            updateAction(0, 'template', MESSAGE_TEMPLATES.prepaid_confirmation);
-                            setShowTemplates(false);
-                          }}
-                          className="w-full text-left px-3 py-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-                        >
-                          <p className="text-sm font-medium text-slate-900">💳 Prepaid Order Thank You</p>
-                          <p className="text-xs text-slate-500 mt-1">Thank customer for prepaid/authorized orders</p>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            updateAction(0, 'template', MESSAGE_TEMPLATES.all_orders_welcome);
-                            setShowTemplates(false);
-                          }}
-                          className="w-full text-left px-3 py-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-                        >
-                          <p className="text-sm font-medium text-slate-900">🎉 Welcome All Orders</p>
-                          <p className="text-xs text-slate-500 mt-1">Universal welcome for any payment type</p>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            updateAction(0, 'template', MESSAGE_TEMPLATES.cod_reminder);
-                            setShowTemplates(false);
-                          }}
-                          className="w-full text-left px-3 py-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-                        >
-                          <p className="text-sm font-medium text-slate-900">⏰ COD Reminder</p>
-                          <p className="text-xs text-slate-500 mt-1">Reminder for unconfirmed COD orders</p>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            updateAction(0, 'template', MESSAGE_TEMPLATES.shipment_notification);
-                            setShowTemplates(false);
-                          }}
-                          className="w-full text-left px-3 py-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-                        >
-                          <p className="text-sm font-medium text-slate-900">🚚 Shipment Notification</p>
-                          <p className="text-xs text-slate-500 mt-1">Notify customer when order is fulfilled</p>
-                        </button>
+                          variant="list"
+                        />
                       </div>
                     )}
 
