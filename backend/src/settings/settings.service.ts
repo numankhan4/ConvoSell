@@ -595,37 +595,147 @@ export class SettingsService {
     // Get webhook base URL from environment or use ngrok
     const webhookBaseUrl = this.config.get('SHOPIFY_WEBHOOK_URL') || this.config.get('APP_URL') || 'http://localhost:3000';
 
-    // List of webhooks to register
-    // Note: Shopify sends all webhook topics to the same URL, topic is in the x-shopify-topic header
-    const webhooks = [
-      {
-        topic: 'ORDERS_CREATE',
-        callbackUrl: `${webhookBaseUrl}/api/shopify/webhook`,
-      },
-      {
-        topic: 'ORDERS_UPDATED',
-        callbackUrl: `${webhookBaseUrl}/api/shopify/webhook`,
-      },
-      {
-        topic: 'ORDERS_CANCELLED',
-        callbackUrl: `${webhookBaseUrl}/api/shopify/webhook`,
-      },
-      {
-        topic: 'ORDERS_DELETE',
-        callbackUrl: `${webhookBaseUrl}/api/shopify/webhook`,
-      },
+    // Required order webhooks for CRM sync + fulfillment progression.
+    const requiredTopics = [
+      'ORDERS_CREATE',
+      'ORDERS_UPDATED',
+      'ORDERS_CANCELLED',
+      'ORDERS_DELETE',
+      'ORDERS_FULFILLED',
     ];
+    const callbackUrl = `${webhookBaseUrl}/api/shopify/webhook`;
 
     const results: Array<{
       topic: string;
       success: boolean;
       id?: string;
+      action?: 'already_configured' | 'repaired' | 'created' | 'deleted_old';
       errors?: any[];
       error?: string;
     }> = [];
 
-    for (const webhook of webhooks) {
+    // Fetch existing webhook subscriptions first so this function can self-heal.
+    const existingResponse = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Access-Token': token,
+      },
+      body: JSON.stringify({
+        query: `
+          query webhookSubscriptions {
+            webhookSubscriptions(first: 100) {
+              edges {
+                node {
+                  id
+                  topic
+                  endpoint {
+                    __typename
+                    ... on WebhookHttpEndpoint {
+                      callbackUrl
+                    }
+                  }
+                }
+              }
+            }
+          }
+        `,
+      }),
+    });
+
+    const existingData = await existingResponse.json();
+    const existingWebhooks = existingData?.data?.webhookSubscriptions?.edges?.map((edge: any) => edge.node) || [];
+
+    if (existingData?.errors?.length) {
+      this.logger.error('Failed to fetch existing webhook subscriptions', existingData.errors);
+      throw new BadRequestException('Unable to fetch Shopify webhook subscriptions');
+    }
+
+    const byTopic = new Map<string, any[]>();
+    for (const webhook of existingWebhooks) {
+      if (!requiredTopics.includes(webhook.topic)) continue;
+      const current = byTopic.get(webhook.topic) || [];
+      current.push(webhook);
+      byTopic.set(webhook.topic, current);
+    }
+
+    for (const topic of requiredTopics) {
       try {
+        const existingForTopic = byTopic.get(topic) || [];
+        const matching = existingForTopic.find((sub: any) => sub.endpoint?.callbackUrl === callbackUrl);
+
+        if (matching) {
+          // If duplicate valid subscriptions exist for same topic, keep one and remove extras.
+          const duplicates = existingForTopic.filter((sub: any) => sub.id !== matching.id && sub.endpoint?.callbackUrl === callbackUrl);
+          for (const duplicate of duplicates) {
+            const deleteResponse = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Shopify-Access-Token': token,
+              },
+              body: JSON.stringify({
+                query: `
+                  mutation webhookSubscriptionDelete($id: ID!) {
+                    webhookSubscriptionDelete(id: $id) {
+                      deletedWebhookSubscriptionId
+                      userErrors {
+                        field
+                        message
+                      }
+                    }
+                  }
+                `,
+                variables: { id: duplicate.id },
+              }),
+            });
+
+            const deleteData = await deleteResponse.json();
+            const deleteErrors = deleteData?.data?.webhookSubscriptionDelete?.userErrors || [];
+            if (deleteErrors.length === 0) {
+              results.push({ topic, success: true, id: duplicate.id, action: 'deleted_old' });
+            }
+          }
+
+          this.logger.log(`Webhook already configured: ${topic} → ${callbackUrl}`);
+          results.push({ topic, success: true, id: matching.id, action: 'already_configured' });
+          continue;
+        }
+
+        // Remove wrong-url subscriptions for same topic.
+        for (const wrong of existingForTopic) {
+          const deleteResponse = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Shopify-Access-Token': token,
+            },
+            body: JSON.stringify({
+              query: `
+                mutation webhookSubscriptionDelete($id: ID!) {
+                  webhookSubscriptionDelete(id: $id) {
+                    deletedWebhookSubscriptionId
+                    userErrors {
+                      field
+                      message
+                    }
+                  }
+                }
+              `,
+              variables: { id: wrong.id },
+            }),
+          });
+
+          const deleteData = await deleteResponse.json();
+          const deleteErrors = deleteData?.data?.webhookSubscriptionDelete?.userErrors || [];
+
+          if (deleteErrors.length > 0) {
+            this.logger.warn(`Failed deleting old webhook ${topic} (${wrong.id})`, deleteErrors);
+          } else {
+            results.push({ topic, success: true, id: wrong.id, action: 'deleted_old' });
+          }
+        }
+
         const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
           method: 'POST',
           headers: {
@@ -654,9 +764,9 @@ export class SettingsService {
               }
             `,
             variables: {
-              topic: webhook.topic,
+              topic,
               webhookSubscription: {
-                callbackUrl: webhook.callbackUrl,
+                callbackUrl,
                 format: 'JSON',
               },
             },
@@ -666,16 +776,17 @@ export class SettingsService {
         const data = await response.json();
 
         if (data.data?.webhookSubscriptionCreate?.userErrors?.length > 0) {
-          this.logger.error(`Webhook registration error for ${webhook.topic}:`, data.data.webhookSubscriptionCreate.userErrors);
-          results.push({ topic: webhook.topic, success: false, errors: data.data.webhookSubscriptionCreate.userErrors });
+          this.logger.error(`Webhook registration error for ${topic}:`, data.data.webhookSubscriptionCreate.userErrors);
+          results.push({ topic, success: false, errors: data.data.webhookSubscriptionCreate.userErrors });
         } else {
-          this.logger.log(`Webhook registered: ${webhook.topic} → ${webhook.callbackUrl}`);
-          results.push({ topic: webhook.topic, success: true, id: data.data?.webhookSubscriptionCreate?.webhookSubscription?.id });
+          const action = existingForTopic.length > 0 ? 'repaired' : 'created';
+          this.logger.log(`Webhook ${action}: ${topic} → ${callbackUrl}`);
+          results.push({ topic, success: true, id: data.data?.webhookSubscriptionCreate?.webhookSubscription?.id, action });
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        this.logger.error(`Failed to register webhook ${webhook.topic}: ${errorMessage}`);
-        results.push({ topic: webhook.topic, success: false, error: errorMessage });
+        this.logger.error(`Failed to ensure webhook ${topic}: ${errorMessage}`);
+        results.push({ topic, success: false, error: errorMessage });
       }
     }
 

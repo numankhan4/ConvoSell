@@ -82,9 +82,31 @@ export function ShopifySettingsTab({ onConnectionChange }: ShopifySettingsTabPro
       const urlParams = new URLSearchParams(window.location.search);
       const shopifyParam = urlParams.get('shopify');
       const shopParam = urlParams.get('shop');
+      const webhookStatus = urlParams.get('webhooks');
+      const webhookError = urlParams.get('webhook_error');
+      const failedTopics = urlParams.get('webhook_failed_topics');
 
       if (shopifyParam === 'connected' && shopParam) {
-        toast.success(`✅ ${shopParam} connected successfully!`);
+        if (webhookStatus === 'ok' || !webhookStatus) {
+          toast.success(`✅ ${shopParam} connected successfully!`);
+        } else {
+          const failedList = failedTopics
+            ? failedTopics.split(',').join(', ')
+            : 'some required topics';
+
+          if (webhookError === 'protected_customer_data') {
+            toast.error(
+              `Connected to ${shopParam}, but Shopify blocked protected-data webhooks (${failedList}). Approve Protected Customer Data in Partner Dashboard and reconnect.`,
+              { duration: 9000 },
+            );
+          } else {
+            toast.error(
+              `Connected to ${shopParam}, but webhook setup is partial (${failedList}). Please retry webhook registration in Settings.`,
+              { duration: 8000 },
+            );
+          }
+        }
+
         await loadShopifyStore();
         window.history.replaceState({}, document.title, window.location.pathname);
       }

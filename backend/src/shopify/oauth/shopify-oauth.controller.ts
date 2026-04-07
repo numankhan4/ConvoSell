@@ -13,12 +13,16 @@ import { Response } from 'express';
 import { ShopifyOAuthService } from './shopify-oauth.service';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { Public } from '../../common/decorators/public.decorator';
+import { SettingsService } from '../../settings/settings.service';
 
 @Controller('shopify/oauth')
 export class ShopifyOAuthController {
   private readonly logger = new Logger(ShopifyOAuthController.name);
 
-  constructor(private readonly oauthService: ShopifyOAuthService) {}
+  constructor(
+    private readonly oauthService: ShopifyOAuthService,
+    private readonly settingsService: SettingsService,
+  ) {}
 
   /**
    * Step 1: Initiate OAuth flow
@@ -81,10 +85,55 @@ export class ShopifyOAuthController {
       
       // 4. Exchange code for access token
       await this.oauthService.exchangeToken(shop, code, workspaceId);
+
+      // 5. Ensure required Shopify webhooks are registered and healthy.
+      let webhookStatus: 'ok' | 'partial' | 'failed' = 'ok';
+      let failedTopics: string[] = [];
+      let webhookErrorCode = '';
+
+      try {
+        const webhookResults = await this.settingsService.registerShopifyWebhooks(workspaceId);
+        failedTopics = webhookResults
+          .filter((result: any) => !result.success)
+          .map((result: any) => result.topic);
+
+        if (failedTopics.length > 0) {
+          webhookStatus = 'partial';
+
+          const hasProtectedDataError = webhookResults.some((result: any) =>
+            (result.errors || []).some((err: any) =>
+              String(err?.message || '').toLowerCase().includes('protected customer data'),
+            ),
+          );
+
+          if (hasProtectedDataError) {
+            webhookErrorCode = 'protected_customer_data';
+          }
+        }
+      } catch (webhookError: any) {
+        webhookStatus = 'failed';
+        webhookErrorCode = 'webhook_registration_failed';
+        this.logger.warn(
+          `OAuth succeeded but webhook auto-registration failed: ${webhookError?.message || webhookError}`,
+        );
+      }
       
-      // 5. Redirect merchant back to settings page with success message
+      // 6. Redirect merchant back to settings page with success message
       const frontendUrl = process.env.SHOPIFY_APP_URL || 'http://localhost:3004';
-      const redirectUrl = `${frontendUrl}/dashboard/settings?shopify=connected&shop=${encodeURIComponent(shop)}`;
+      const query = new URLSearchParams({
+        shopify: 'connected',
+        shop,
+        webhooks: webhookStatus,
+      });
+
+      if (failedTopics.length > 0) {
+        query.set('webhook_failed_topics', failedTopics.join(','));
+      }
+      if (webhookErrorCode) {
+        query.set('webhook_error', webhookErrorCode);
+      }
+
+      const redirectUrl = `${frontendUrl}/dashboard/settings?${query.toString()}`;
       
       this.logger.log(`OAuth flow completed successfully for shop: ${shop}, redirecting to: ${redirectUrl}`);
       
