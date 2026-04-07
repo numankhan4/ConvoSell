@@ -141,14 +141,22 @@ export class AutomationsService {
       return;
     }
 
+    // Support both legacy shape ({ message, template }) and config shape ({ config: { message, template } })
+    const actionConfig = action?.config || {};
+    let message = action?.template || action?.message || actionConfig.template || actionConfig.message;
+
+    if (typeof message !== 'string' || !message.trim()) {
+      this.logger.warn('Cannot send message: automation action has no message/template content');
+      return;
+    }
+
     // Replace template variables
-    let message = action.template || action.message;
     message = message.replace('{{customer_name}}', order.contact.name || 'Customer');
-    message = message.replace('{{order_number}}', order.externalOrderNumber || order.externalOrderId);
-    message = message.replace('{{order_total}}', `${order.currency} ${order.totalAmount}`);
+    message = message.replace('{{order_number}}', String(order.externalOrderNumber || order.externalOrderId || order.id));
+    message = message.replace('{{order_total}}', `${order.currency || 'PKR'} ${order.totalAmount ?? 0}`);
 
     // Send via WhatsApp
-    if (action.useButtons) {
+    if (action.useButtons || actionConfig.useButtons) {
       await this.whatsappService.sendButtonMessage(
         workspaceId,
         order.contact.whatsappPhone,

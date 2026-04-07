@@ -158,6 +158,7 @@ export class ShopifyService {
           eventType: 'order.created',
           aggregateId: order.id,
           payload: {
+            workspaceId,
             orderId: order.id,
             contactId: contact.id,
             paymentMethod: order.paymentMethod,

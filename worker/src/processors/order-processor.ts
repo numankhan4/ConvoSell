@@ -9,10 +9,25 @@ export async function processOrderEvent(data: any, prisma: PrismaClient) {
 
   console.log(`Processing order event: ${eventType}`);
 
+  // Prefer workspace from payload; fallback to order lookup for older events
+  let workspaceId = payload?.workspaceId as string | undefined;
+  if (!workspaceId && payload?.orderId) {
+    const order = await prisma.order.findUnique({
+      where: { id: payload.orderId },
+      select: { workspaceId: true },
+    });
+    workspaceId = order?.workspaceId;
+  }
+
+  if (!workspaceId) {
+    console.warn('Skipping automation execution: missing workspaceId in payload and order lookup failed');
+    return;
+  }
+
   // Find active automations for this workspace
   const automations = await prisma.automation.findMany({
     where: {
-      workspaceId: payload.workspaceId,
+      workspaceId,
       isActive: true,
     },
   });
@@ -144,11 +159,19 @@ async function executeSendMessage(action: any, payload: any, prisma: PrismaClien
     return;
   }
 
+  // Support both legacy shape ({ message, template }) and config shape ({ config: { message, template } })
+  const actionConfig = action?.config || {};
+  let message = action?.template || action?.message || actionConfig.template || actionConfig.message;
+
+  if (typeof message !== 'string' || !message.trim()) {
+    console.warn('   ⚠️  Automation action has no message/template content');
+    return;
+  }
+
   // Replace template variables
-  let message = action.template || action.message;
   message = message.replace('{{customer_name}}', order.contact.name || 'Customer');
-  message = message.replace('{{order_number}}', order.externalOrderNumber || order.externalOrderId);
-  message = message.replace('{{order_total}}', `${order.currency} ${order.totalAmount}`);
+  message = message.replace('{{order_number}}', String(order.externalOrderNumber || order.externalOrderId || order.id));
+  message = message.replace('{{order_total}}', `${order.currency || 'PKR'} ${order.totalAmount ?? 0}`);
 
   // Send via WhatsApp API (using axios)
   const axios = require('axios');
@@ -156,13 +179,13 @@ async function executeSendMessage(action: any, payload: any, prisma: PrismaClien
 
   const messagePayload: any = {
     messaging_product: 'whatsapp',
-    to: order.contact.whatsappPhone,
+    to: order.contact.whatsappPhone.replace(/^\+/, ''),
     type: 'text',
     text: { body: message },
   };
 
   // Add buttons if specified
-  if (action.useButtons) {
+  if (action.useButtons || actionConfig.useButtons) {
     messagePayload.type = 'interactive';
     messagePayload.interactive = {
       type: 'button',
@@ -216,7 +239,7 @@ async function executeSendMessage(action: any, payload: any, prisma: PrismaClien
       workspaceId: order.workspaceId,
       conversationId: conversation.id,
       direction: 'outbound',
-      type: action.useButtons ? 'interactive' : 'text',
+      type: action.useButtons || actionConfig.useButtons ? 'interactive' : 'text',
       content: message,
       whatsappMessageId,
       status: 'sent',
