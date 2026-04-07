@@ -80,7 +80,15 @@ async function executeActions(actions: any[], payload: any, prisma: PrismaClient
     try {
       switch (action.type) {
         case 'send_message':
-          await executeSendMessage(action, payload, prisma);
+          if (hasTemplateConfig(action)) {
+            await executeSendTemplateMessage(action, payload, prisma);
+          } else {
+            await executeSendMessage(action, payload, prisma);
+          }
+          break;
+        case 'send_template':
+        case 'send_template_message':
+          await executeSendTemplateMessage(action, payload, prisma);
           break;
         case 'add_tag':
           await executeAddTag(action, payload, prisma);
@@ -120,6 +128,51 @@ async function executeActions(actions: any[], payload: any, prisma: PrismaClient
       console.error(''); // Empty line for readability
     }
   }
+}
+
+function hasTemplateConfig(action: any): boolean {
+  const actionConfig = action?.config || {};
+  return Boolean(action?.templateId || actionConfig?.templateId);
+}
+
+function resolveOrderVariables(value: string, order: any): string {
+  if (typeof value !== 'string') return '';
+
+  const replacements: Record<string, string> = {
+    '{{customer_name}}': order?.contact?.name || 'Customer',
+    '{{order_number}}': String(order?.externalOrderNumber || order?.externalOrderId || order?.id || ''),
+    '{{order_total}}': `${order?.currency || 'PKR'} ${order?.totalAmount ?? 0}`,
+    '{{payment_method}}': String(order?.paymentMethod || ''),
+  };
+
+  let rendered = value;
+  for (const [token, replacement] of Object.entries(replacements)) {
+    rendered = rendered.split(token).join(replacement);
+  }
+
+  return rendered;
+}
+
+function canSendTemplateMessage(plan: string, messagesUsed: number, messagesLimit: number): { allowed: boolean; reason?: string } {
+  if (plan === 'free') {
+    return {
+      allowed: false,
+      reason: 'Upgrade to Starter plan or higher to send template messages',
+    };
+  }
+
+  if (plan === 'enterprise' || messagesLimit === -1) {
+    return { allowed: true };
+  }
+
+  if (messagesUsed >= messagesLimit) {
+    return {
+      allowed: false,
+      reason: `Monthly quota exceeded (${messagesUsed}/${messagesLimit}). Upgrade plan or wait for reset.`,
+    };
+  }
+
+  return { allowed: true };
 }
 
 /**
@@ -255,6 +308,261 @@ async function executeSendMessage(action: any, payload: any, prisma: PrismaClien
   });
 
   console.log(`   🎉 Complete! Message delivered and tracked.\n`);
+}
+
+async function executeSendTemplateMessage(action: any, payload: any, prisma: PrismaClient) {
+  console.log(`\n📤 Sending WhatsApp template message...`);
+
+  const actionConfig = action?.config || {};
+  const templateId = action?.templateId || actionConfig?.templateId;
+
+  if (!templateId) {
+    console.warn('   ⚠️  Missing templateId in automation action');
+    return;
+  }
+
+  const order = await prisma.order.findUnique({
+    where: { id: payload.orderId },
+    include: { contact: true },
+  });
+
+  if (!order) {
+    console.warn(`   ⚠️  Order not found: ${payload.orderId}`);
+    return;
+  }
+
+  if (!order.contact.whatsappPhone) {
+    console.warn(`   ⚠️  Contact missing WhatsApp phone: ${order.contact.name}`);
+    return;
+  }
+
+  const workspaceRows = await prisma.$queryRawUnsafe<any[]>(
+    `SELECT id, plan, "templateMessagesLimit", "templateMessagesUsed", "quotaResetAt", "subscriptionStatus"
+     FROM workspaces
+     WHERE id = $1
+     LIMIT 1`,
+    order.workspaceId,
+  );
+  const workspace = workspaceRows[0];
+
+  if (!workspace) {
+    console.warn(`   ⚠️  Workspace not found for order: ${order.id}`);
+    return;
+  }
+
+  if (workspace.subscriptionStatus !== 'active' && workspace.subscriptionStatus !== 'trialing') {
+    console.warn(`   ⚠️  Subscription is not active for workspace ${workspace.id}`);
+    return;
+  }
+
+  const now = new Date();
+  let templateMessagesUsed = Number(workspace.templateMessagesUsed || 0);
+  let templateMessagesLimit = Number(workspace.templateMessagesLimit || 0);
+
+  if (workspace.quotaResetAt < now) {
+    await prisma.$executeRawUnsafe(
+      `UPDATE workspaces
+       SET "templateMessagesUsed" = 0,
+           "quotaResetAt" = $2,
+           "updatedAt" = NOW()
+       WHERE id = $1`,
+      workspace.id,
+      new Date(now.getFullYear(), now.getMonth() + 1, 1),
+    );
+    templateMessagesUsed = 0;
+    templateMessagesLimit = workspace.templateMessagesLimit;
+  }
+
+  const quotaCheck = canSendTemplateMessage(
+    workspace.plan,
+    templateMessagesUsed,
+    templateMessagesLimit,
+  );
+
+  if (!quotaCheck.allowed) {
+    console.warn(`   ⚠️  Template blocked by plan/quota: ${quotaCheck.reason}`);
+    return;
+  }
+
+  const templateRows = await prisma.$queryRawUnsafe<any[]>(
+    `SELECT id, "workspaceId", name, language, category, status, "headerType", "headerText"
+     FROM whatsapp_message_templates
+     WHERE id = $1
+     LIMIT 1`,
+    templateId,
+  );
+  const template = templateRows[0];
+
+  if (!template) {
+    console.warn(`   ⚠️  Template not found: ${templateId}`);
+    return;
+  }
+
+  if (template.workspaceId !== order.workspaceId) {
+    console.warn(`   ⚠️  Template ${templateId} does not belong to workspace ${order.workspaceId}`);
+    return;
+  }
+
+  if (template.status !== 'APPROVED') {
+    console.warn(`   ⚠️  Template ${template.name} is not approved (status: ${template.status})`);
+    return;
+  }
+
+  const integration = await prisma.whatsAppIntegration.findFirst({
+    where: {
+      workspaceId: order.workspaceId,
+      isActive: true,
+    },
+  });
+
+  if (!integration) {
+    console.warn('   ⚠️  WhatsApp not connected');
+    return;
+  }
+
+  const headerParamsInput = action?.headerParams || actionConfig?.headerParams || [];
+  const bodyParamsInput = action?.bodyParams || actionConfig?.bodyParams || [];
+  const buttonParamsInput = action?.buttonParams || actionConfig?.buttonParams || [];
+
+  const headerParams = Array.isArray(headerParamsInput)
+    ? headerParamsInput.map((value: any) => resolveOrderVariables(String(value ?? ''), order))
+    : [];
+  const bodyParams = Array.isArray(bodyParamsInput)
+    ? bodyParamsInput.map((value: any) => resolveOrderVariables(String(value ?? ''), order))
+    : [];
+  const buttonParams = Array.isArray(buttonParamsInput)
+    ? buttonParamsInput.map((value: any) => resolveOrderVariables(String(value ?? ''), order))
+    : [];
+
+  const components: any[] = [];
+
+  if (template.headerType === 'TEXT' && template.headerText && headerParams.length > 0) {
+    components.push({
+      type: 'header',
+      parameters: headerParams.map((value: string) => ({ type: 'text', text: value })),
+    });
+  } else if (template.headerType && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(template.headerType) && headerParams.length > 0) {
+    const mediaType = template.headerType.toLowerCase();
+    components.push({
+      type: 'header',
+      parameters: [{ type: mediaType, [mediaType]: { link: headerParams[0] } }],
+    });
+  }
+
+  if (bodyParams.length > 0) {
+    components.push({
+      type: 'body',
+      parameters: bodyParams.map((value: string) => ({ type: 'text', text: value })),
+    });
+  }
+
+  if (buttonParams.length > 0) {
+    components.push({
+      type: 'button',
+      sub_type: 'url',
+      index: 0,
+      parameters: buttonParams.map((value: string) => ({ type: 'text', text: value })),
+    });
+  }
+
+  const axios = require('axios');
+  const whatsappUrl = `${process.env.WHATSAPP_API_URL}/${integration.phoneNumberId}/messages`;
+  const toPhone = order.contact.whatsappPhone.replace(/^\+/, '');
+  const estimatedCost = template.category === 'MARKETING' ? 12 : 7;
+
+  try {
+    const response = await axios.post(
+      whatsappUrl,
+      {
+        messaging_product: 'whatsapp',
+        to: toPhone,
+        type: 'template',
+        template: {
+          name: template.name,
+          language: { code: template.language },
+          components: components.length > 0 ? components : undefined,
+        },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${integration.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+
+    const whatsappMessageId = response.data.messages[0].id;
+
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO template_messages (
+        id, "workspaceId", "templateId", "recipientPhone", "contactId", "orderId",
+        "headerParams", "bodyParams", "buttonParams", "whatsappMessageId",
+        status, "estimatedCost", "sentAt", "createdAt", "updatedAt"
+      ) VALUES (
+        gen_random_uuid()::text, $1, $2, $3, $4, $5,
+        $6::jsonb, $7::jsonb, $8::jsonb, $9,
+        'sent', $10, NOW(), NOW(), NOW()
+      )`,
+      order.workspaceId,
+      templateId,
+      order.contact.whatsappPhone,
+      order.contactId,
+      order.id,
+      JSON.stringify(headerParams),
+      JSON.stringify(bodyParams),
+      JSON.stringify(buttonParams),
+      whatsappMessageId,
+      estimatedCost,
+    );
+
+    await prisma.$executeRawUnsafe(
+      `UPDATE workspaces
+       SET "templateMessagesUsed" = "templateMessagesUsed" + 1,
+           "updatedAt" = NOW()
+       WHERE id = $1`,
+      order.workspaceId,
+    );
+
+    await prisma.$executeRawUnsafe(
+      `UPDATE whatsapp_message_templates
+       SET "sentCount" = "sentCount" + 1,
+           "updatedAt" = NOW()
+       WHERE id = $1`,
+      templateId,
+    );
+
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { confirmationSentAt: new Date() },
+    });
+
+    console.log(`   ✅ Template sent successfully!`);
+    console.log(`   Template: ${template.name}`);
+    console.log(`   WhatsApp Message ID: ${whatsappMessageId}`);
+  } catch (error: any) {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO template_messages (
+        id, "workspaceId", "templateId", "recipientPhone", "contactId", "orderId",
+        "headerParams", "bodyParams", "buttonParams", status,
+        "errorMessage", "failedAt", "createdAt", "updatedAt"
+      ) VALUES (
+        gen_random_uuid()::text, $1, $2, $3, $4, $5,
+        $6::jsonb, $7::jsonb, $8::jsonb, 'failed',
+        $9, NOW(), NOW(), NOW()
+      )`,
+      order.workspaceId,
+      templateId,
+      order.contact.whatsappPhone,
+      order.contactId,
+      order.id,
+      JSON.stringify(headerParams),
+      JSON.stringify(bodyParams),
+      JSON.stringify(buttonParams),
+      error?.response?.data?.error?.message || error.message || 'Failed to send template message',
+    );
+
+    throw error;
+  }
 }
 
 /**

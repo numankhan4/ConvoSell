@@ -174,11 +174,73 @@ export class ShopifyService {
   }
 
   /**
+   * Sync contact details from Shopify order update payload
+   */
+  private async syncContactFromOrder(workspaceId: string, orderData: any) {
+    const customerPhone = this.extractPhoneFromOrder(orderData);
+    const customerEmail = orderData.customer?.email;
+    const customerName = [orderData.customer?.first_name, orderData.customer?.last_name]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+
+    let contact = await this.prisma.contact.findFirst({
+      where: {
+        workspaceId,
+        OR: [
+          ...(customerEmail ? [{ email: customerEmail }] : []),
+          ...(customerPhone ? [{ whatsappPhone: customerPhone }] : []),
+        ],
+      },
+    });
+
+    if (!contact && (customerEmail || customerPhone)) {
+      contact = await this.prisma.contact.create({
+        data: {
+          workspaceId,
+          name: customerName || undefined,
+          email: customerEmail || undefined,
+          whatsappPhone: customerPhone || undefined,
+        },
+      });
+
+      return contact;
+    }
+
+    if (!contact) {
+      return null;
+    }
+
+    const updateData: any = {};
+    if (customerName && customerName !== contact.name) {
+      updateData.name = customerName;
+    }
+    if (customerEmail && customerEmail !== contact.email) {
+      updateData.email = customerEmail;
+    }
+    if (customerPhone && customerPhone !== contact.whatsappPhone) {
+      updateData.whatsappPhone = customerPhone;
+    }
+
+    if (Object.keys(updateData).length > 0) {
+      contact = await this.prisma.contact.update({
+        where: { id: contact.id },
+        data: updateData,
+      });
+      this.logger.log(`Contact synced from Shopify update: ${contact.id}`);
+    }
+
+    return contact;
+  }
+
+  /**
    * Handle Shopify order updated webhook
    * If order doesn't exist, create it (handles late webhook delivery)
    */
   async handleOrderUpdated(workspaceId: string, orderData: any) {
     this.logger.log(`Processing Shopify order update: ${orderData.id}`);
+
+    const syncedContact = await this.syncContactFromOrder(workspaceId, orderData);
 
     // Check if order already exists
     const existingOrder = await this.prisma.order.findFirst({
@@ -198,6 +260,8 @@ export class ShopifyService {
       const shouldUpdateStatus = !['confirmed', 'cancelled', 'completed'].includes(existingOrder.status);
       
       const updateData: any = {
+        contactId: syncedContact?.id || existingOrder.contactId,
+        externalOrderNumber: orderData.name || existingOrder.externalOrderNumber,
         totalAmount: parseFloat(orderData.total_price),
         items: orderData.line_items || [],
         shippingAddress: orderData.shipping_address,
@@ -227,6 +291,70 @@ export class ShopifyService {
       this.logger.log(`Order not found, creating new order: ${orderData.id}`);
       return this.handleOrderCreated(workspaceId, orderData);
     }
+  }
+
+  /**
+   * Handle Shopify order cancelled webhook
+   */
+  async handleOrderCancelled(workspaceId: string, orderData: any) {
+    this.logger.log(`Processing Shopify order cancellation: ${orderData.id}`);
+
+    const existingOrder = await this.prisma.order.findFirst({
+      where: {
+        workspaceId,
+        externalOrderId: orderData.id.toString(),
+      },
+    });
+
+    if (!existingOrder) {
+      this.logger.warn(`Cancelled order not found locally. Creating from webhook payload: ${orderData.id}`);
+      return this.handleOrderCreated(workspaceId, orderData);
+    }
+
+    await this.prisma.order.update({
+      where: { id: existingOrder.id },
+      data: {
+        status: 'cancelled',
+        cancelledAt: orderData.cancelled_at ? new Date(orderData.cancelled_at) : new Date(),
+        shopifyCancelled: true,
+        totalAmount: parseFloat(orderData.total_price),
+        items: orderData.line_items || [],
+        shippingAddress: orderData.shipping_address,
+      },
+    });
+
+    await this.syncContactFromOrder(workspaceId, orderData);
+    this.logger.log(`Order cancelled from Shopify synced: ${existingOrder.id}`);
+  }
+
+  /**
+   * Handle Shopify order deletion webhook
+   */
+  async handleOrderDeleted(workspaceId: string, orderData: any) {
+    this.logger.log(`Processing Shopify order deletion: ${orderData.id}`);
+
+    const existingOrder = await this.prisma.order.findFirst({
+      where: {
+        workspaceId,
+        externalOrderId: orderData.id.toString(),
+      },
+    });
+
+    if (!existingOrder) {
+      this.logger.warn(`Deleted order not found locally: ${orderData.id}`);
+      return;
+    }
+
+    await this.prisma.order.update({
+      where: { id: existingOrder.id },
+      data: {
+        status: 'cancelled',
+        cancelledAt: new Date(),
+        shopifyCancelled: true,
+      },
+    });
+
+    this.logger.log(`Order marked cancelled due to Shopify deletion: ${existingOrder.id}`);
   }
 
   /**
@@ -364,13 +492,15 @@ export class ShopifyService {
       where: { id: shopifyStoreId },
     });
 
-    if (!store || !store.accessToken) {
+    const accessToken = store?.oauthAccessToken || store?.accessToken;
+
+    if (!store || !accessToken) {
       throw new BadRequestException('Shopify store not found or not authenticated');
     }
 
     const baseUrl = `https://${store.shopDomain}/admin/api/2024-01`;
     const headers = {
-      'X-Shopify-Access-Token': store.accessToken,
+      'X-Shopify-Access-Token': accessToken,
       'Content-Type': 'application/json',
     };
 
@@ -414,7 +544,7 @@ export class ShopifyService {
       );
 
       this.logger.log(`Added note to Shopify order ${externalOrderId}`);
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(
         `Failed to add note to Shopify order ${externalOrderId}: ${error.message}`,
         error.response?.data ? JSON.stringify(error.response.data) : error.stack,
@@ -461,7 +591,7 @@ export class ShopifyService {
       );
 
       this.logger.log(`Added tags to Shopify order ${externalOrderId}: ${tags.join(', ')}`);
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(
         `Failed to add tags to Shopify order ${externalOrderId}: ${error.message}`,
         error.response?.data ? JSON.stringify(error.response.data) : error.stack,
@@ -519,7 +649,7 @@ export class ShopifyService {
       }
 
       this.logger.log(`Cancelled Shopify order ${externalOrderId}`);
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(
         `Failed to cancel Shopify order ${externalOrderId}: ${error.message}`,
         error.response?.data ? JSON.stringify(error.response.data) : error.stack,
@@ -582,7 +712,7 @@ export class ShopifyService {
       );
 
       this.logger.log(`Created fulfillment for Shopify order ${externalOrderId}`);
-    } catch (error) {
+    } catch (error: any) {
       const errorMsg = error.response?.data?.errors || error.message;
       
       if (error.response?.status === 403) {
@@ -626,7 +756,7 @@ export class ShopifyService {
       );
 
       this.logger.log(`Updated financial status for order ${externalOrderId} to ${status}`);
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Failed to update financial status: ${error.message}`);
     }
   }

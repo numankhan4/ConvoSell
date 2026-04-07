@@ -109,7 +109,15 @@ export class AutomationsService {
       try {
         switch (action.type) {
           case 'send_message':
-            await this.executeSendMessage(workspaceId, action, payload);
+            if (this.hasTemplateConfig(action)) {
+              await this.executeSendTemplateMessage(workspaceId, action, payload);
+            } else {
+              await this.executeSendMessage(workspaceId, action, payload);
+            }
+            break;
+          case 'send_template':
+          case 'send_template_message':
+            await this.executeSendTemplateMessage(workspaceId, action, payload);
             break;
           case 'add_tag':
             await this.executeAddTag(workspaceId, action, payload);
@@ -124,6 +132,81 @@ export class AutomationsService {
         this.logger.error(`Failed to execute action: ${action.type}`, error);
       }
     }
+  }
+
+  private hasTemplateConfig(action: any): boolean {
+    const actionConfig = action?.config || {};
+    return Boolean(action?.templateId || actionConfig?.templateId);
+  }
+
+  private resolveOrderVariables(value: string, order: any): string {
+    if (typeof value !== 'string') return '';
+
+    const replacements: Record<string, string> = {
+      '{{customer_name}}': order?.contact?.name || 'Customer',
+      '{{order_number}}': String(order?.externalOrderNumber || order?.externalOrderId || order?.id || ''),
+      '{{order_total}}': `${order?.currency || 'PKR'} ${order?.totalAmount ?? 0}`,
+      '{{payment_method}}': String(order?.paymentMethod || ''),
+    };
+
+    let rendered = value;
+    for (const [token, replacement] of Object.entries(replacements)) {
+      rendered = rendered.split(token).join(replacement);
+    }
+
+    return rendered;
+  }
+
+  private async executeSendTemplateMessage(workspaceId: string, action: any, payload: any) {
+    const actionConfig = action?.config || {};
+    const templateId = action?.templateId || actionConfig?.templateId;
+
+    if (!templateId) {
+      this.logger.warn('Cannot send template message: missing templateId');
+      return;
+    }
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: payload.orderId },
+      include: { contact: true },
+    });
+
+    if (!order || !order.contact.whatsappPhone) {
+      this.logger.warn('Cannot send template message: missing order or contact phone');
+      return;
+    }
+
+    const headerParamsInput = action?.headerParams || actionConfig?.headerParams || [];
+    const bodyParamsInput = action?.bodyParams || actionConfig?.bodyParams || [];
+    const buttonParamsInput = action?.buttonParams || actionConfig?.buttonParams || [];
+
+    const headerParams = Array.isArray(headerParamsInput)
+      ? headerParamsInput.map((value: any) => this.resolveOrderVariables(String(value ?? ''), order))
+      : [];
+    const bodyParams = Array.isArray(bodyParamsInput)
+      ? bodyParamsInput.map((value: any) => this.resolveOrderVariables(String(value ?? ''), order))
+      : [];
+    const buttonParams = Array.isArray(buttonParamsInput)
+      ? buttonParamsInput.map((value: any) => this.resolveOrderVariables(String(value ?? ''), order))
+      : [];
+
+    await this.whatsappService.sendManagedTemplateMessage({
+      workspaceId,
+      templateId,
+      recipientPhone: order.contact.whatsappPhone,
+      contactId: order.contactId,
+      orderId: order.id,
+      headerParams,
+      bodyParams,
+      buttonParams,
+    });
+
+    await this.prisma.order.update({
+      where: { id: order.id },
+      data: { confirmationSentAt: new Date() },
+    });
+
+    this.logger.log(`Automation sent template message to ${order.contact.whatsappPhone}`);
   }
 
   /**

@@ -98,7 +98,14 @@ export class ShopifyController {
           break;
         case 'orders/cancelled':
           console.log('🚫 Order cancelled webhook received');
-          // await this.shopifyService.handleOrderCancelled(store.workspaceId, body);
+          await this.shopifyService.handleOrderCancelled(store.workspaceId, body);
+          console.log('✅ Order cancellation processed');
+          break;
+        case 'orders/delete':
+        case 'orders/deleted':
+          console.log('🗑️ Order deletion webhook received');
+          await this.shopifyService.handleOrderDeleted(store.workspaceId, body);
+          console.log('✅ Order deletion processed');
           break;
         case 'orders/fulfilled':
           console.log('📦 Order fulfilled webhook - processing...');
