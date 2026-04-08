@@ -9,6 +9,28 @@ export class OrdersService {
     private settingsService: SettingsService,
   ) {}
 
+  private async writeReadAudit(
+    workspaceId: string,
+    action: string,
+    entityType: string,
+    entityId: string | null,
+    metadata?: Record<string, any>,
+  ) {
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          workspaceId,
+          action,
+          entityType,
+          entityId,
+          metadata,
+        },
+      });
+    } catch {
+      // Never block core read operations on audit log failures.
+    }
+  }
+
   /**
    * Get orders for workspace (filtered by active Shopify store)
    */
@@ -89,6 +111,15 @@ export class OrdersService {
       calculatedPages: Math.ceil(total / limit),
     });
 
+    await this.writeReadAudit(workspaceId, 'orders.list.view', 'order', null, {
+      page,
+      limit,
+      status: params.status || null,
+      search: !!params.search,
+      resultCount: orders.length,
+      total,
+    });
+
     return {
       data: orders,
       meta: {
@@ -104,7 +135,7 @@ export class OrdersService {
    * Get single order
    */
   async getOrder(workspaceId: string, orderId: string) {
-    return this.prisma.order.findFirst({
+    const order = await this.prisma.order.findFirst({
       where: { id: orderId, workspaceId },
       include: {
         contact: true,
@@ -116,6 +147,12 @@ export class OrdersService {
         },
       },
     });
+
+    await this.writeReadAudit(workspaceId, 'order.detail.view', 'order', orderId, {
+      found: !!order,
+    });
+
+    return order;
   }
 
   /**
@@ -206,6 +243,11 @@ export class OrdersService {
       }),
     ]);
 
+    await this.writeReadAudit(workspaceId, 'orders.statistics.view', 'order', null, {
+      statusFilter: statusFilter || 'all',
+      totalOrders,
+    });
+
     return {
       totalOrders,
       pendingOrders,
@@ -218,6 +260,94 @@ export class OrdersService {
       realizedRevenue: realizedRevenue._sum.totalAmount || 0,
       pendingValue: pendingValue._sum.totalAmount || 0,
       avgResponseTime: avgResponseTime._avg.responseTimeMinutes || null,
+    };
+  }
+
+  /**
+   * Export orders in JSON or CSV format.
+   */
+  async exportOrders(workspaceId: string, format: 'json' | 'csv' = 'json') {
+    const activeStoreId = await this.settingsService.getActiveShopifyStoreId(workspaceId);
+
+    const where: any = {
+      workspaceId,
+      ...(activeStoreId && { shopifyStoreId: activeStoreId }),
+    };
+
+    const orders = await this.prisma.order.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        externalOrderNumber: true,
+        externalOrderId: true,
+        status: true,
+        totalAmount: true,
+        currency: true,
+        paymentMethod: true,
+        createdAt: true,
+        confirmedAt: true,
+        cancelledAt: true,
+        deliveredAt: true,
+      },
+    });
+
+    await this.writeReadAudit(workspaceId, 'orders.export', 'order', null, {
+      format,
+      count: orders.length,
+      activeStoreOnly: !!activeStoreId,
+    });
+
+    if (format === 'csv') {
+      const escapeCsv = (value: unknown) => {
+        if (value === null || value === undefined) return '';
+        const raw = String(value);
+        return `"${raw.replace(/"/g, '""')}"`;
+      };
+
+      const header = [
+        'id',
+        'externalOrderNumber',
+        'externalOrderId',
+        'status',
+        'totalAmount',
+        'currency',
+        'paymentMethod',
+        'createdAt',
+        'confirmedAt',
+        'cancelledAt',
+        'deliveredAt',
+      ];
+
+      const rows = orders.map((order) => [
+        escapeCsv(order.id),
+        escapeCsv(order.externalOrderNumber),
+        escapeCsv(order.externalOrderId),
+        escapeCsv(order.status),
+        escapeCsv(order.totalAmount),
+        escapeCsv(order.currency),
+        escapeCsv(order.paymentMethod),
+        escapeCsv(order.createdAt.toISOString()),
+        escapeCsv(order.confirmedAt?.toISOString()),
+        escapeCsv(order.cancelledAt?.toISOString()),
+        escapeCsv(order.deliveredAt?.toISOString()),
+      ]);
+
+      return {
+        format,
+        filename: `orders-export-${new Date().toISOString().slice(0, 10)}.csv`,
+        generatedAt: new Date().toISOString(),
+        count: orders.length,
+        data: [header.join(','), ...rows.map((row) => row.join(','))].join('\n'),
+      };
+    }
+
+    return {
+      format,
+      filename: `orders-export-${new Date().toISOString().slice(0, 10)}.json`,
+      generatedAt: new Date().toISOString(),
+      count: orders.length,
+      data: orders,
     };
   }
 }

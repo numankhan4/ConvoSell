@@ -3,6 +3,8 @@ import { CrmService } from './crm.service';
 import { WorkspaceId } from '../common/decorators/user.decorator';
 import { TenantGuard } from '../common/guards/tenant.guard';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { RequirePermission } from '../common/decorators/permission.decorator';
+import { Permission } from '../common/constants/permissions.constants';
 
 @Controller('crm')
 @UseGuards(TenantGuard)
@@ -20,6 +22,15 @@ export class CrmController {
     @Query('search') search?: string,
   ) {
     return this.crmService.getContacts(workspaceId, { page, limit, search });
+  }
+
+  @Get('contacts/export')
+  @RequirePermission(Permission.CONTACTS_EXPORT)
+  exportContacts(
+    @WorkspaceId() workspaceId: string,
+    @Query('format') format?: 'json' | 'csv',
+  ) {
+    return this.crmService.exportContacts(workspaceId, format || 'json');
   }
 
   @Get('contacts/:id')

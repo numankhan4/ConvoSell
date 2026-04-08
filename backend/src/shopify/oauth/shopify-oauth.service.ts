@@ -3,6 +3,7 @@ import { HttpService } from '@nestjs/axios';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { firstValueFrom } from 'rxjs';
 import * as crypto from 'crypto';
+import { encryptSecret } from '../../common/utils/crypto.util';
 
 @Injectable()
 export class ShopifyOAuthService {
@@ -152,7 +153,7 @@ export class ShopifyOAuthService {
     await this.prisma.shopifyStore.upsert({
       where: { shopDomain },
       update: {
-        oauthAccessToken: accessToken,
+        oauthAccessToken: encryptSecret(accessToken),
         tokenType: 'oauth',
         scopes,
         oauthInstalledAt: new Date(),
@@ -163,7 +164,7 @@ export class ShopifyOAuthService {
       create: {
         shopDomain,
         workspaceId,
-        oauthAccessToken: accessToken,
+        oauthAccessToken: encryptSecret(accessToken),
         tokenType: 'oauth',
         scopes,
         oauthInstalledAt: new Date(),

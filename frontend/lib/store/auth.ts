@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { validateStrongPassword } from '@/lib/utils/password';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
 
@@ -42,7 +43,7 @@ interface AuthState {
   originalUserId: string | null;
   workspaceUsers: User[];
   login: (email: string, password: string) => Promise<void>;
-  register: (data: any) => Promise<void>;
+  register: (data: any) => Promise<any>;
   logout: () => void;
   setCurrentWorkspace: (workspace: Workspace) => void;
   fetchProfile: () => Promise<void>;
@@ -128,22 +129,15 @@ export const useAuthStore = create<AuthState>()(
       },
 
       register: async (data: any) => {
+        const passwordCheck = validateStrongPassword(data?.password || '');
+        if (!passwordCheck.isValid) {
+          throw new Error(
+            'Password must be at least 12 characters and include uppercase, lowercase, number, and special character.',
+          );
+        }
+
         const response = await axios.post(`${API_URL}/auth/register`, data);
-
-        const { user, workspace, accessToken } = response.data;
-
-        set({
-          user,
-          workspaces: [workspace],
-          currentWorkspace: workspace,
-          token: accessToken,
-          isAuthenticated: true,
-        });
-
-        axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
-        
-        // Fetch workspace member role after registration
-        await get().fetchWorkspaceMember();
+        return response.data;
       },
 
       logout: () => {

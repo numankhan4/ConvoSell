@@ -5,6 +5,7 @@ import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
 import { CreateTemplateDto, UpdateTemplateDto, SendTemplateDto } from './dto/template.dto';
+import { decryptSecret } from '../common/utils/crypto.util';
 
 @Injectable()
 export class TemplatesService {
@@ -18,6 +19,28 @@ export class TemplatesService {
     private config: ConfigService,
   ) {
     this.apiUrl = config.get('WHATSAPP_API_URL') || 'https://graph.facebook.com/v18.0';
+  }
+
+  private async writeReadAudit(
+    workspaceId: string,
+    action: string,
+    entityType: string,
+    entityId: string | null,
+    metadata?: Record<string, any>,
+  ) {
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          workspaceId,
+          action,
+          entityType,
+          entityId,
+          metadata,
+        },
+      });
+    } catch {
+      // Do not break analytics/reporting reads if auditing fails.
+    }
   }
 
   /**
@@ -170,6 +193,8 @@ export class TemplatesService {
     }
 
     try {
+      const accessToken = decryptSecret(integration.accessToken) as string;
+
       // Submit template to Meta for approval
       const url = `${this.apiUrl}/${integration.businessAccountId}/message_templates`;
       const response = await firstValueFrom(
@@ -183,7 +208,7 @@ export class TemplatesService {
           },
           {
             headers: {
-              Authorization: `Bearer ${integration.accessToken}`,
+              Authorization: `Bearer ${accessToken}`,
               'Content-Type': 'application/json',
             },
           },
@@ -312,6 +337,12 @@ export class TemplatesService {
     const totalFailed = messages.filter(m => m.status === 'failed').length;
     const totalCost = messages.reduce((sum, m) => sum + (m.estimatedCost || 0), 0);
 
+    await this.writeReadAudit(workspaceId, 'templates.stats.view', 'template', templateId, {
+      days,
+      messageCount: messages.length,
+      totalCost: Math.round(totalCost),
+    });
+
     return {
       templateId,
       days,
@@ -363,6 +394,13 @@ export class TemplatesService {
         where: { workspaceId },
       }),
     ]);
+
+    await this.writeReadAudit(workspaceId, 'templates.messages.history.view', 'template_message', null, {
+      page,
+      limit,
+      resultCount: messages.length,
+      total,
+    });
 
     return {
       messages,

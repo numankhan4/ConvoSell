@@ -5,6 +5,7 @@ import { firstValueFrom } from 'rxjs';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { ShopifyService } from '../shopify/shopify.service';
 import { SubscriptionPlan, canSendTemplateMessage, WHATSAPP_COSTS } from '../common/constants/subscription.constants';
+import { decryptSecret } from '../common/utils/crypto.util';
 
 interface SendMessageDto {
   to: string; // E.164 phone number
@@ -70,6 +71,8 @@ export class WhatsAppService {
         throw new BadRequestException('WhatsApp not connected for this workspace');
       }
 
+      const accessToken = decryptSecret(integration.accessToken) as string;
+
       // WhatsApp API expects phone without + sign, but we normalize with + for database
       const phoneForApi = dto.to.replace(/^\+/, '');
 
@@ -88,7 +91,7 @@ export class WhatsAppService {
           },
           {
             headers: {
-              Authorization: `Bearer ${integration.accessToken}`,
+              Authorization: `Bearer ${accessToken}`,
               'Content-Type': 'application/json',
             },
           },

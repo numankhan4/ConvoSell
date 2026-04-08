@@ -4,6 +4,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import * as crypto from 'crypto';
+import { decryptSecret } from '../common/utils/crypto.util';
 
 @Injectable()
 export class ShopifyService {
@@ -546,7 +547,11 @@ export class ShopifyService {
       where: { id: shopifyStoreId },
     });
 
-    const accessToken = store?.oauthAccessToken || store?.accessToken;
+    const accessToken = store?.oauthAccessToken
+      ? decryptSecret(store.oauthAccessToken)
+      : store?.accessToken
+      ? decryptSecret(store.accessToken)
+      : null;
 
     if (!store || !accessToken) {
       throw new BadRequestException('Shopify store not found or not authenticated');

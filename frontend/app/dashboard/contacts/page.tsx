@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { crmApi } from '@/lib/api';
 import { PermissionGate } from '@/components/PermissionGate';
+import ExportConfirmModal from '@/components/ExportConfirmModal';
 import { usePermissions, Permissions } from '@/lib/hooks/usePermissions';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
@@ -11,6 +12,8 @@ export default function ContactsPage() {
   const { role } = usePermissions();
   const [contacts, setContacts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState<'csv' | 'json' | null>(null);
+  const [pendingExportFormat, setPendingExportFormat] = useState<'csv' | 'json' | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedContact, setSelectedContact] = useState<any>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
@@ -153,6 +156,48 @@ export default function ContactsPage() {
     return phone;
   };
 
+  const downloadBlob = (blob: Blob, fileName: string) => {
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  };
+
+  const handleExportContacts = async (format: 'csv' | 'json') => {
+    try {
+      setExporting(format);
+      const response = await crmApi.exportContacts(format);
+      const exportBlob = response.data instanceof Blob
+        ? response.data
+        : new Blob([response.data], {
+            type: format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json;charset=utf-8',
+          });
+
+      const timestamp = new Date().toISOString().slice(0, 10);
+      downloadBlob(exportBlob, `contacts-export-${timestamp}.${format}`);
+      toast.success(`Contacts exported as ${format.toUpperCase()}`);
+    } catch (error: any) {
+      const message = error.response?.data?.message || `Failed to export contacts as ${format.toUpperCase()}`;
+      toast.error(message);
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const requestExportContacts = (format: 'csv' | 'json') => {
+    setPendingExportFormat(format);
+  };
+
+  const confirmExportContacts = async () => {
+    if (!pendingExportFormat) return;
+    await handleExportContacts(pendingExportFormat);
+    setPendingExportFormat(null);
+  };
+
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* Header */}
@@ -175,6 +220,24 @@ export default function ContactsPage() {
           </p>
         </div>
         <div className="flex items-center space-x-3">
+          <PermissionGate permission={Permissions.CONTACTS_EXPORT}>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => requestExportContacts('csv')}
+                disabled={exporting !== null}
+                className="px-3 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium transition-colors"
+              >
+                {exporting === 'csv' ? 'Exporting...' : 'Export CSV'}
+              </button>
+              <button
+                onClick={() => requestExportContacts('json')}
+                disabled={exporting !== null}
+                className="px-3 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium transition-colors"
+              >
+                {exporting === 'json' ? 'Exporting...' : 'Export JSON'}
+              </button>
+            </div>
+          </PermissionGate>
           <PermissionGate permission={Permissions.CONTACTS_CREATE}>
             <button 
               onClick={openAddModal}
@@ -187,6 +250,15 @@ export default function ContactsPage() {
           </PermissionGate>
         </div>
       </div>
+
+      <ExportConfirmModal
+        open={pendingExportFormat !== null}
+        resourceLabel="Contacts"
+        format={pendingExportFormat || 'csv'}
+        loading={exporting !== null}
+        onCancel={() => setPendingExportFormat(null)}
+        onConfirm={confirmExportContacts}
+      />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">

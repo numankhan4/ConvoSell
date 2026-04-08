@@ -2,6 +2,8 @@ import { Controller, Get, Patch, Param, Query, Body, UseGuards } from '@nestjs/c
 import { OrdersService } from './orders.service';
 import { WorkspaceId } from '../common/decorators/user.decorator';
 import { TenantGuard } from '../common/guards/tenant.guard';
+import { RequirePermission } from '../common/decorators/permission.decorator';
+import { Permission } from '../common/constants/permissions.constants';
 
 @Controller('orders')
 @UseGuards(TenantGuard)
@@ -33,6 +35,15 @@ export class OrdersController {
     @Query('status') status?: string,
   ) {
     return this.ordersService.getStatistics(workspaceId, status);
+  }
+
+  @Get('export')
+  @RequirePermission(Permission.ORDERS_EXPORT)
+  exportOrders(
+    @WorkspaceId() workspaceId: string,
+    @Query('format') format?: 'json' | 'csv',
+  ) {
+    return this.ordersService.exportOrders(workspaceId, format || 'json');
   }
 
   @Get(':id')

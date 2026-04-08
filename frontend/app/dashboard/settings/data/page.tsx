@@ -4,7 +4,9 @@ import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/lib/store/auth';
 import { useRouter } from 'next/navigation';
 import { settingsApi } from '@/lib/api/settings';
+import { crmApi, ordersApi } from '@/lib/api';
 import { PermissionGate, RoleGate } from '@/components/PermissionGate';
+import ExportConfirmModal from '@/components/ExportConfirmModal';
 import { usePermissions, Permissions } from '@/lib/hooks/usePermissions';
 import toast from 'react-hot-toast';
 
@@ -40,6 +42,8 @@ export default function DataManagementPage() {
   });
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteType, setDeleteType] = useState<'all' | 'messages' | 'contacts' | null>(null);
+  const [exporting, setExporting] = useState<string | null>(null);
+  const [pendingExport, setPendingExport] = useState<{ resource: 'contacts' | 'orders'; format: 'csv' | 'json' } | null>(null);
 
   useEffect(() => {
     loadData();
@@ -118,6 +122,52 @@ export default function DataManagementPage() {
       hour: '2-digit',
       minute: '2-digit',
     });
+  };
+
+  const downloadBlob = (blob: Blob, fileName: string) => {
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  };
+
+  const handleExport = async (resource: 'contacts' | 'orders', format: 'csv' | 'json') => {
+    const key = `${resource}-${format}`;
+    try {
+      setExporting(key);
+      const response = resource === 'contacts'
+        ? await crmApi.exportContacts(format)
+        : await ordersApi.exportOrders(format);
+
+      const exportBlob = response.data instanceof Blob
+        ? response.data
+        : new Blob([response.data], {
+            type: format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json;charset=utf-8',
+          });
+
+      const timestamp = new Date().toISOString().slice(0, 10);
+      downloadBlob(exportBlob, `${resource}-export-${timestamp}.${format}`);
+      toast.success(`${resource === 'contacts' ? 'Contacts' : 'Orders'} exported as ${format.toUpperCase()}`);
+    } catch (error: any) {
+      const message = error.response?.data?.message || `Failed to export ${resource}`;
+      toast.error(message);
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const requestExport = (resource: 'contacts' | 'orders', format: 'csv' | 'json') => {
+    setPendingExport({ resource, format });
+  };
+
+  const confirmExport = async () => {
+    if (!pendingExport) return;
+    await handleExport(pendingExport.resource, pendingExport.format);
+    setPendingExport(null);
   };
 
   return (
@@ -331,21 +381,78 @@ export default function DataManagementPage() {
         <p className="text-gray-600 mb-4">
           Download your workspace data in CSV or JSON format
         </p>
-        <div className="flex gap-3">
-          <button
-            onClick={() => toast('Export feature coming soon', { icon: 'ℹ️' })}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+        <p className="text-xs text-slate-500 mb-4">
+          Data exports are permission controlled and recorded in audit logs.
+        </p>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <PermissionGate
+            permission={Permissions.CONTACTS_EXPORT}
+            fallback={
+              <div className="p-3 rounded-lg border border-slate-200 bg-slate-50 text-sm text-slate-500">
+                Contacts export unavailable for your role.
+              </div>
+            }
           >
-            Export as CSV
-          </button>
-          <button
-            onClick={() => toast('Export feature coming soon', { icon: 'ℹ️' })}
-            className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+            <div className="p-3 rounded-lg border border-slate-200">
+              <p className="font-semibold text-slate-800 mb-2">Contacts</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => requestExport('contacts', 'csv')}
+                  disabled={exporting !== null}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {exporting === 'contacts-csv' ? 'Exporting...' : 'CSV'}
+                </button>
+                <button
+                  onClick={() => requestExport('contacts', 'json')}
+                  disabled={exporting !== null}
+                  className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {exporting === 'contacts-json' ? 'Exporting...' : 'JSON'}
+                </button>
+              </div>
+            </div>
+          </PermissionGate>
+
+          <PermissionGate
+            permission={Permissions.ORDERS_EXPORT}
+            fallback={
+              <div className="p-3 rounded-lg border border-slate-200 bg-slate-50 text-sm text-slate-500">
+                Orders export unavailable for your role.
+              </div>
+            }
           >
-            Export as JSON
-          </button>
+            <div className="p-3 rounded-lg border border-slate-200">
+              <p className="font-semibold text-slate-800 mb-2">Orders</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => requestExport('orders', 'csv')}
+                  disabled={exporting !== null}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {exporting === 'orders-csv' ? 'Exporting...' : 'CSV'}
+                </button>
+                <button
+                  onClick={() => requestExport('orders', 'json')}
+                  disabled={exporting !== null}
+                  className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {exporting === 'orders-json' ? 'Exporting...' : 'JSON'}
+                </button>
+              </div>
+            </div>
+          </PermissionGate>
         </div>
       </div>
+
+      <ExportConfirmModal
+        open={pendingExport !== null}
+        resourceLabel={pendingExport?.resource === 'orders' ? 'Orders' : 'Contacts'}
+        format={pendingExport?.format || 'csv'}
+        loading={exporting !== null}
+        onCancel={() => setPendingExport(null)}
+        onConfirm={confirmExport}
+      />
 
       {/* Delete Confirmation Modal */}
       {showDeleteModal && (

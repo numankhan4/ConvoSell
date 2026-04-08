@@ -5,6 +5,28 @@ import { PrismaService } from '../common/prisma/prisma.service';
 export class CrmService {
   constructor(private prisma: PrismaService) {}
 
+  private async writeReadAudit(
+    workspaceId: string,
+    action: string,
+    entityType: string,
+    entityId: string | null,
+    metadata?: Record<string, any>,
+  ) {
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          workspaceId,
+          action,
+          entityType,
+          entityId,
+          metadata,
+        },
+      });
+    } catch {
+      // Never block CRM reads on audit failures.
+    }
+  }
+
   /**
    * Normalize phone number to E.164 format (always start with +)
    */
@@ -56,6 +78,15 @@ export class CrmService {
       this.prisma.contact.count({ where }),
     ]);
 
+    await this.writeReadAudit(workspaceId, 'contacts.list.view', 'contact', null, {
+      page,
+      limit,
+      hasSearch: !!params.search,
+      hasTags: !!params.tags?.length,
+      resultCount: contacts.length,
+      total,
+    });
+
     return {
       data: contacts,
       meta: {
@@ -71,7 +102,7 @@ export class CrmService {
    * Get single contact with conversations
    */
   async getContact(workspaceId: string, contactId: string) {
-    return this.prisma.contact.findFirst({
+    const contact = await this.prisma.contact.findFirst({
       where: { id: contactId, workspaceId },
       include: {
         conversations: {
@@ -87,6 +118,12 @@ export class CrmService {
         },
       },
     });
+
+    await this.writeReadAudit(workspaceId, 'contact.detail.view', 'contact', contactId, {
+      found: !!contact,
+    });
+
+    return contact;
   }
 
   /**
@@ -183,6 +220,14 @@ export class CrmService {
       this.prisma.conversation.count({ where }),
     ]);
 
+    await this.writeReadAudit(workspaceId, 'conversations.list.view', 'conversation', null, {
+      page,
+      limit,
+      status: params.status || null,
+      resultCount: conversations.length,
+      total,
+    });
+
     return {
       data: conversations,
       meta: {
@@ -208,6 +253,11 @@ export class CrmService {
       },
     });
 
+    await this.writeReadAudit(workspaceId, 'conversation.detail.view', 'conversation', conversationId, {
+      found: !!conversation,
+      messageCount: conversation?.messages?.length || 0,
+    });
+
     // Mark as read
     if (conversation) {
       await this.prisma.conversation.update({
@@ -217,6 +267,77 @@ export class CrmService {
     }
 
     return conversation;
+  }
+
+  /**
+   * Export contacts in JSON or CSV format.
+   */
+  async exportContacts(workspaceId: string, format: 'json' | 'csv' = 'json') {
+    const contacts = await this.prisma.contact.findMany({
+      where: { workspaceId },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        whatsappPhone: true,
+        tags: true,
+        totalOrders: true,
+        lastContactAt: true,
+        createdAt: true,
+      },
+    });
+
+    await this.writeReadAudit(workspaceId, 'contacts.export', 'contact', null, {
+      format,
+      count: contacts.length,
+    });
+
+    if (format === 'csv') {
+      const escapeCsv = (value: unknown) => {
+        if (value === null || value === undefined) return '';
+        const raw = Array.isArray(value) ? value.join('|') : String(value);
+        return `"${raw.replace(/"/g, '""')}"`;
+      };
+
+      const header = [
+        'id',
+        'name',
+        'email',
+        'whatsappPhone',
+        'tags',
+        'totalOrders',
+        'lastContactAt',
+        'createdAt',
+      ];
+
+      const rows = contacts.map((contact) => [
+        escapeCsv(contact.id),
+        escapeCsv(contact.name),
+        escapeCsv(contact.email),
+        escapeCsv(contact.whatsappPhone),
+        escapeCsv(contact.tags),
+        escapeCsv(contact.totalOrders),
+        escapeCsv(contact.lastContactAt?.toISOString()),
+        escapeCsv(contact.createdAt.toISOString()),
+      ]);
+
+      return {
+        format,
+        filename: `contacts-export-${new Date().toISOString().slice(0, 10)}.csv`,
+        generatedAt: new Date().toISOString(),
+        count: contacts.length,
+        data: [header.join(','), ...rows.map((row) => row.join(','))].join('\n'),
+      };
+    }
+
+    return {
+      format,
+      filename: `contacts-export-${new Date().toISOString().slice(0, 10)}.json`,
+      generatedAt: new Date().toISOString(),
+      count: contacts.length,
+      data: contacts,
+    };
   }
 
   /**

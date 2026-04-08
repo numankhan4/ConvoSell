@@ -5,6 +5,10 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/lib/store/auth';
 import toast from 'react-hot-toast';
+import { validateStrongPassword } from '@/lib/utils/password';
+import axios from 'axios';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -17,6 +21,12 @@ export default function RegisterPage() {
     workspaceName: '',
   });
   const [loading, setLoading] = useState(false);
+  const [devVerificationToken, setDevVerificationToken] = useState<string | null>(null);
+  const [verifyingEmail, setVerifyingEmail] = useState(false);
+  const [resendingVerification, setResendingVerification] = useState(false);
+  const [resendCooldownSeconds, setResendCooldownSeconds] = useState(0);
+  const [verificationPendingEmail, setVerificationPendingEmail] = useState<string>('');
+  const passwordValidation = validateStrongPassword(formData.password);
 
   // Redirect if already authenticated
   useEffect(() => {
@@ -25,18 +35,90 @@ export default function RegisterPage() {
     }
   }, [isAuthenticated, isInitialized, router]);
 
+  useEffect(() => {
+    if (resendCooldownSeconds <= 0) return;
+
+    const timer = setInterval(() => {
+      setResendCooldownSeconds((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [resendCooldownSeconds]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!passwordValidation.isValid) {
+      toast.error('Please choose a stronger password that meets all requirements.');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      await register(formData);
-      toast.success('Account created successfully! Welcome to ConvoSell 🎉');
-      router.push('/dashboard');
+      const response = await register(formData);
+      const signupEmail = formData.email.trim().toLowerCase();
+
+      if (response?.verificationToken) {
+        setDevVerificationToken(response.verificationToken);
+      }
+
+      setVerificationPendingEmail(signupEmail);
+      toast.success(response?.message || 'Account created. Please verify your email before signing in.');
+      setFormData((prev) => ({ ...prev, password: '' }));
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Registration failed. Please try again.');
+      toast.error(err.response?.data?.message || err.message || 'Registration failed. Please try again.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    const targetEmail = verificationPendingEmail || formData.email.trim().toLowerCase();
+    if (!targetEmail) {
+      toast.error('Enter your email first.');
+      return;
+    }
+
+    setResendingVerification(true);
+    try {
+      const response = await axios.post(`${API_URL}/auth/resend-verification`, {
+        email: targetEmail,
+      });
+
+      if (response.data?.verificationToken) {
+        setDevVerificationToken(response.data.verificationToken);
+      }
+
+      setVerificationPendingEmail(targetEmail);
+      setResendCooldownSeconds(60);
+      toast.success(response.data?.message || 'Verification email sent.');
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.message || 'Failed to resend verification email.';
+      const cooldownMatch = errorMessage.match(/(\d+)\s*seconds/i);
+      if (cooldownMatch?.[1]) {
+        setResendCooldownSeconds(Number(cooldownMatch[1]));
+      }
+      toast.error(errorMessage);
+    } finally {
+      setResendingVerification(false);
+    }
+  };
+
+  const handleDevVerifyEmail = async () => {
+    if (!devVerificationToken) return;
+
+    setVerifyingEmail(true);
+    try {
+      const response = await axios.post(`${API_URL}/auth/verify-email`, {
+        token: devVerificationToken,
+      });
+      toast.success(response.data?.message || 'Email verified. Please sign in.');
+      router.push('/login');
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to verify email.');
+    } finally {
+      setVerifyingEmail(false);
     }
   };
 
@@ -184,11 +266,20 @@ export default function RegisterPage() {
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                   required
-                  minLength={8}
+                  minLength={12}
                   className="w-full min-h-[44px] px-3 sm:px-4 py-2.5 sm:py-3 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
                   placeholder="••••••••"
                 />
-                <p className="text-xs text-slate-500 mt-1">Minimum 8 characters</p>
+                <div className="mt-2 space-y-1">
+                  {passwordValidation.rules.map((rule) => (
+                    <p
+                      key={rule.label}
+                      className={`text-xs ${rule.passed ? 'text-emerald-600' : 'text-slate-500'}`}
+                    >
+                      {rule.passed ? '✓' : '•'} {rule.label}
+                    </p>
+                  ))}
+                </div>
               </div>
 
               <div>
@@ -209,7 +300,7 @@ export default function RegisterPage() {
 
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || !passwordValidation.isValid}
                 className="w-full min-h-[44px] bg-primary-500 hover:bg-primary-600 active:bg-primary-700 text-white font-medium rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shadow-sm hover:shadow-md text-sm sm:text-base"
               >
                 {loading ? (
@@ -236,6 +327,32 @@ export default function RegisterPage() {
                   Sign in
                 </Link>
               </p>
+              <button
+                type="button"
+                onClick={handleResendVerification}
+                disabled={resendingVerification || resendCooldownSeconds > 0}
+                className="mt-3 text-sm font-medium text-slate-600 hover:text-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {resendingVerification
+                  ? 'Resending verification...'
+                  : resendCooldownSeconds > 0
+                    ? `Resend available in ${resendCooldownSeconds}s`
+                    : "Didn't receive email? Resend verification"}
+              </button>
+              {devVerificationToken && (
+                <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-left">
+                  <p className="text-xs font-semibold text-amber-800">Development Mode</p>
+                  <p className="mt-1 text-xs text-amber-700 break-all">Verification token: {devVerificationToken}</p>
+                  <button
+                    type="button"
+                    onClick={handleDevVerifyEmail}
+                    disabled={verifyingEmail}
+                    className="mt-2 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {verifyingEmail ? 'Verifying...' : 'Verify Email Now'}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 

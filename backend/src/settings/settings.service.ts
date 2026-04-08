@@ -6,7 +6,7 @@ import { WhatsAppTokenService } from './whatsapp-token.service';
 import { CreateWhatsAppIntegrationDto, UpdateWhatsAppIntegrationDto } from './dto/whatsapp-integration.dto';
 import { CreateShopifyStoreDto, UpdateShopifyStoreDto } from './dto/shopify-store.dto';
 import { firstValueFrom } from 'rxjs';
-import { generateWebhookVerifyToken } from '../common/utils/crypto.util';
+import { decryptSecret, encryptSecret, generateWebhookVerifyToken } from '../common/utils/crypto.util';
 
 @Injectable()
 export class SettingsService {
@@ -109,8 +109,8 @@ export class SettingsService {
         phoneNumberId: dto.phoneNumberId,
         phoneNumber: dto.phoneNumber,
         businessAccountId: dto.businessAccountId,
-        accessToken: dto.accessToken, // TODO: Encrypt in production
-        refreshToken: dto.refreshToken,
+        accessToken: encryptSecret(dto.accessToken) as string,
+        refreshToken: encryptSecret(dto.refreshToken),
         webhookVerifyToken, // Unique per workspace
         tokenType,
         tokenExpiresAt,
@@ -181,8 +181,8 @@ export class SettingsService {
       ...(dto.phoneNumberId && { phoneNumberId: dto.phoneNumberId }),
       ...(dto.phoneNumber && { phoneNumber: dto.phoneNumber }),
       ...(dto.businessAccountId && { businessAccountId: dto.businessAccountId }),
-      ...(dto.accessToken && { accessToken: dto.accessToken }),
-      ...(dto.refreshToken !== undefined && { refreshToken: dto.refreshToken }),
+      ...(dto.accessToken && { accessToken: encryptSecret(dto.accessToken) }),
+      ...(dto.refreshToken !== undefined && { refreshToken: encryptSecret(dto.refreshToken) }),
       ...(dto.webhookVerifyToken && { webhookVerifyToken: dto.webhookVerifyToken }),
       ...(dto.tokenType && { tokenType: dto.tokenType }),
       ...(dto.isActive !== undefined && { isActive: dto.isActive }),
@@ -423,7 +423,7 @@ export class SettingsService {
     // PRIORITY 1: OAuth token (permanent, no refresh needed)
     if (store.tokenType === 'oauth' && store.oauthAccessToken && !store.uninstalledAt) {
       this.logger.log(`Using OAuth token for workspace ${workspaceId}`);
-      return store.oauthAccessToken;
+      return decryptSecret(store.oauthAccessToken) as string;
     }
 
     // PRIORITY 2: Client Credentials (legacy, 24-hour tokens)
@@ -444,14 +444,14 @@ export class SettingsService {
       const { accessToken, expiresAt } = await this.exchangeShopifyCredentials(
         store.shopDomain,
         store.clientId,
-        store.clientSecret,
+        decryptSecret(store.clientSecret) as string,
       );
 
       // Update token in database
       await this.prisma.shopifyStore.update({
         where: { id: store.id },
         data: {
-          accessToken,
+          accessToken: encryptSecret(accessToken),
           tokenExpiresAt: expiresAt,
         },
       });
@@ -459,7 +459,7 @@ export class SettingsService {
       return accessToken;
     }
 
-    return store.accessToken as string;
+    return decryptSecret(store.accessToken) as string;
   }
 
   async getShopifyStore(workspaceId: string) {
@@ -541,8 +541,8 @@ export class SettingsService {
         workspaceId,
         shopDomain: dto.shopDomain,
         clientId: dto.clientId,
-        clientSecret: dto.clientSecret, // TODO: Encrypt in production
-        accessToken,
+        clientSecret: encryptSecret(dto.clientSecret),
+        accessToken: encryptSecret(accessToken),
         tokenExpiresAt: expiresAt,
         scopes: scopes || dto.scopes, // Use returned scopes or provided ones
         isActive: dto.isActive ?? true,
@@ -589,7 +589,11 @@ export class SettingsService {
       throw new NotFoundException('Shopify store not found');
     }
 
-    const token = accessToken || store.oauthAccessToken || store.accessToken || await this.getShopifyAccessToken(workspaceId);
+    const token =
+      accessToken ||
+      (store.oauthAccessToken ? decryptSecret(store.oauthAccessToken) : null) ||
+      (store.accessToken ? decryptSecret(store.accessToken) : null) ||
+      await this.getShopifyAccessToken(workspaceId);
     const domain = shopDomain || store.shopDomain;
 
     // Get webhook base URL from environment or use ngrok
@@ -820,7 +824,7 @@ export class SettingsService {
     let tokenData: { accessToken?: string; expiresAt?: Date } = {};
     if (dto.clientId || dto.clientSecret) {
       const clientId = dto.clientId || store.clientId;
-      const clientSecret = dto.clientSecret || store.clientSecret;
+      const clientSecret = dto.clientSecret || (decryptSecret(store.clientSecret) as string);
       
       if (!clientId || !clientSecret) {
         throw new BadRequestException('Client ID and Secret are required');
@@ -839,8 +843,8 @@ export class SettingsService {
       data: {
         ...(dto.shopDomain && { shopDomain: dto.shopDomain }),
         ...(dto.clientId && { clientId: dto.clientId }),
-        ...(dto.clientSecret && { clientSecret: dto.clientSecret }),
-        ...(tokenData.accessToken && { accessToken: tokenData.accessToken }),
+        ...(dto.clientSecret && { clientSecret: encryptSecret(dto.clientSecret) }),
+        ...(tokenData.accessToken && { accessToken: encryptSecret(tokenData.accessToken) }),
         ...(tokenData.expiresAt && { tokenExpiresAt: tokenData.expiresAt }),
         ...(dto.scopes && { scopes: dto.scopes }),
         ...(dto.isActive !== undefined && { isActive: dto.isActive }),

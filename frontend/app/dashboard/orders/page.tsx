@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { ordersApi, automationsApi } from '@/lib/api';
 import { PermissionGate } from '@/components/PermissionGate';
+import ExportConfirmModal from '@/components/ExportConfirmModal';
 import { usePermissions, Permissions } from '@/lib/hooks/usePermissions';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
@@ -11,6 +12,8 @@ export default function OrdersPage() {
   const { role } = usePermissions();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState<'csv' | 'json' | null>(null);
+  const [pendingExportFormat, setPendingExportFormat] = useState<'csv' | 'json' | null>(null);
   const [statusFilter, setStatusFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [statistics, setStatistics] = useState<any>(null);
@@ -164,6 +167,48 @@ export default function OrdersPage() {
     return '';
   };
 
+  const downloadBlob = (blob: Blob, fileName: string) => {
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  };
+
+  const handleExportOrders = async (format: 'csv' | 'json') => {
+    try {
+      setExporting(format);
+      const response = await ordersApi.exportOrders(format);
+      const exportBlob = response.data instanceof Blob
+        ? response.data
+        : new Blob([response.data], {
+            type: format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json;charset=utf-8',
+          });
+
+      const timestamp = new Date().toISOString().slice(0, 10);
+      downloadBlob(exportBlob, `orders-export-${timestamp}.${format}`);
+      toast.success(`Orders exported as ${format.toUpperCase()}`);
+    } catch (error: any) {
+      const message = error.response?.data?.message || `Failed to export orders as ${format.toUpperCase()}`;
+      toast.error(message);
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const requestExportOrders = (format: 'csv' | 'json') => {
+    setPendingExportFormat(format);
+  };
+
+  const confirmExportOrders = async () => {
+    if (!pendingExportFormat) return;
+    await handleExportOrders(pendingExportFormat);
+    setPendingExportFormat(null);
+  };
+
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* Header */}
@@ -183,7 +228,34 @@ export default function OrdersPage() {
           </div>
           <p className="text-sm sm:text-base text-slate-600">Track and manage your customer orders</p>
         </div>
+        <PermissionGate permission={Permissions.ORDERS_EXPORT}>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => requestExportOrders('csv')}
+              disabled={exporting !== null}
+              className="px-3 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium transition-colors"
+            >
+              {exporting === 'csv' ? 'Exporting...' : 'Export CSV'}
+            </button>
+            <button
+              onClick={() => requestExportOrders('json')}
+              disabled={exporting !== null}
+              className="px-3 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium transition-colors"
+            >
+              {exporting === 'json' ? 'Exporting...' : 'Export JSON'}
+            </button>
+          </div>
+        </PermissionGate>
       </div>
+
+      <ExportConfirmModal
+        open={pendingExportFormat !== null}
+        resourceLabel="Orders"
+        format={pendingExportFormat || 'csv'}
+        loading={exporting !== null}
+        onCancel={() => setPendingExportFormat(null)}
+        onConfirm={confirmExportOrders}
+      />
 
       {/* Search and Filters */}
       <div className="flex flex-col sm:flex-row gap-3">

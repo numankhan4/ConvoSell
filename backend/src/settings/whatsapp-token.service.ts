@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { firstValueFrom } from 'rxjs';
+import { decryptSecret } from '../common/utils/crypto.util';
 
 interface TokenDebugResponse {
   data: {
@@ -167,9 +168,11 @@ export class WhatsAppTokenService {
 
     for (const integration of expiringIntegrations) {
       try {
+        const accessToken = decryptSecret(integration.accessToken) as string;
+
         // Note: We'd need app_id and app_secret from env or config
         // For now, just update health status
-        const health = await this.checkTokenHealth(integration.accessToken);
+        const health = await this.checkTokenHealth(accessToken);
 
         if (!health.isValid) {
           await this.prisma.whatsAppIntegration.update({
@@ -240,7 +243,7 @@ export class WhatsAppTokenService {
       throw new Error('Integration not found');
     }
 
-    const health = await this.checkTokenHealth(integration.accessToken);
+    const health = await this.checkTokenHealth(decryptSecret(integration.accessToken) as string);
     
     const healthStatus = health.isValid ? 'healthy' : 'error';
     const lastHealthCheck = new Date();

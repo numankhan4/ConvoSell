@@ -5,6 +5,14 @@
 This assessment is based on current repository code and docs only.
 If you have additional legal/security controls outside this repo, update answers accordingly.
 
+Canonical submission matrix:
+- Docs/Guide/SHOPIFY_SUBMISSION_READINESS_MATRIX.md
+
+### Startup Budget Note
+
+For solo-founder execution, prefer controls that improve evidence quality without introducing recurring tool costs.
+Use paid tools only when a control is blocked without them or when required by customers/scale.
+
 ## Evidence Snapshot
 
 Implemented evidence found:
@@ -173,3 +181,112 @@ Then use this stronger selection set:
 3. Enforce strong staff password policy (complexity + rotation where needed).
 4. Expand audit coverage for personal-data reads/exports.
 5. Publish a formal DLP standard and monitoring controls.
+
+### Low-Cost Execution Variant (Recommended for Startup Stage)
+
+1. Encryption at rest:
+- Use application-layer encryption with environment-managed key first.
+- Defer paid KMS until scale or enterprise requirements demand it.
+
+2. Access logging:
+- Expand DB-backed audit logs now.
+- Defer SIEM vendor; use weekly manual audit review and anomaly queries.
+
+3. Backup evidence:
+- Use hosting provider included backup encryption evidence where available.
+- Run manual quarterly restore drills and store reports in docs.
+
+4. DLP controls:
+- Start with no-secrets-in-logs checks, role restrictions, export approval gates.
+- Defer advanced DLP tooling to growth phase.
+
+5. Legal docs:
+- Publish internal draft policy/DPA quickly, then upgrade with legal review when budget permits.
+
+## Implementation Status Update (2026-04-08)
+
+Implementation is active in repository with startup cost-control mode applied.
+
+Completed in this pass:
+1. Strong password validation implemented in backend registration DTO:
+- Minimum length changed to 12
+- Complexity rule added (uppercase, lowercase, number, special character)
+- File: backend/src/auth/dto/auth.dto.ts
+
+2. Security gap tracker now includes per-ticket execution status:
+- File: Docs/Compliance/SECURITY_GAP_CLOSURE_TICKETS.md
+
+3. Detailed implementation backlog created with external action and cost/pricing impact markers:
+- File: Docs/Guide/SHOPIFY_COMPLIANCE_IMPLEMENTATION_BACKLOG.md
+
+4. External action checklist created for legal, infra, and operational evidence tasks:
+- File: Docs/Guide/SHOPIFY_EXTERNAL_ACTION_CHECKLIST.md
+
+5. Shopify secret/token encryption-at-rest implementation started:
+- Encrypted secret helper added with plaintext backward compatibility
+- Shopify Settings/OAuth/Service token paths updated for encrypt-on-write and decrypt-on-read
+- Files:
+	- backend/src/common/utils/crypto.util.ts
+	- backend/src/settings/settings.service.ts
+	- backend/src/shopify/oauth/shopify-oauth.service.ts
+	- backend/src/shopify/shopify.service.ts
+
+6. WhatsApp secret/token encryption coverage extended:
+- WhatsApp integration create/update now encrypts access and refresh tokens on write
+- WhatsApp send/template/token-health/health-check paths now decrypt tokens on read
+- Files:
+	- backend/src/settings/settings.service.ts
+	- backend/src/whatsapp/whatsapp.service.ts
+	- backend/src/templates/templates.service.ts
+	- backend/src/settings/whatsapp-token.service.ts
+	- backend/src/common/health/health-check.service.ts
+
+7. DB-first personal-data read audit logging expanded (no SIEM dependency):
+- Added read access audit events for Orders and CRM list/detail/statistics endpoints
+- Files:
+	- backend/src/orders/orders.service.ts
+	- backend/src/crm/crm.service.ts
+
+8. Founder cost governance artifact added:
+- File: Docs/Guide/FOUNDER_COST_LEDGER_TEMPLATE.md
+
+9. Admin/reporting audit coverage expanded:
+- Added audit events for impersonation start/stop and workspace-user listing
+- Added audit events for template stats and template message history views
+- Files:
+	- backend/src/auth/auth.service.ts
+	- backend/src/templates/templates.service.ts
+
+10. Backup and restore evidence artifacts added:
+- Files:
+	- Docs/Compliance/BACKUP_ENCRYPTION_POLICY.md
+	- Docs/Compliance/BACKUP_RESTORE_DRILL_TEMPLATE.md
+
+11. Token migration runbook added:
+- File: Docs/Guide/TOKEN_ENCRYPTION_MIGRATION_RUNBOOK.md
+
+12. Lightweight regression checks added (zero-cost):
+- Script: backend/src/scripts/security-regression-check.ts
+- Command: npm run security:check (backend/package.json)
+
+13. Explicit export endpoints with permission and audit support added:
+- Contacts export endpoint: GET /api/crm/contacts/export (json/csv)
+- Orders export endpoint: GET /api/orders/export (json/csv)
+- Audit events: contacts.export, orders.export
+- Files:
+	- backend/src/crm/crm.controller.ts
+	- backend/src/crm/crm.service.ts
+	- backend/src/orders/orders.controller.ts
+	- backend/src/orders/orders.service.ts
+
+14. Flexible testing mechanism added to system:
+- Testing framework: Docs/Guide/TESTING_AND_VALIDATION_SYSTEM.md
+- Manual run template: Docs/Guide/MANUAL_TEST_RUN_LOG_TEMPLATE.md
+- Root commands: npm run verify:auto, npm run verify:pre-release
+- File: package.json (root)
+
+Next coding target:
+1. Run first live backup restore drill and store completed evidence report from template.
+2. Execute first plaintext-to-encrypted migration pass in controlled batches.
+3. Add CI hook to run verify:pre-release during pre-release flow.
+4. Add API smoke test script for export/impersonation endpoints.

@@ -1,0 +1,22 @@
+﻿{
+  "status": "ok",
+  "counts": {
+    "workspaces": 6,
+    "contacts": 31,
+    "conversations": 18,
+    "messages": 89,
+    "orders": 33,
+    "users": 6
+  },
+  "sampleWorkspace": {
+    "id": "cmnm20gc9000m8yt4twjsu20u",
+    "name": "Viewer Test Workspace"
+  },
+  "sampleReads": {
+    "contacts": 3,
+    "orders": 3,
+    "messages": 3
+  },
+  "authCheck": "pass",
+  "checkedAt": "2026-04-08T16:54:44.637Z"
+}

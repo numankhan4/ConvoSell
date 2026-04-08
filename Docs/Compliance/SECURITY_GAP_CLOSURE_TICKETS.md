@@ -10,6 +10,8 @@ Close the current Shopify data protection questionnaire gaps and move these answ
 
 ## Ticket 1: Application-Level Encryption at Rest
 
+Status: In progress (Shopify and WhatsApp token/secret encryption write/read coverage implemented; migration/tests pending)
+
 ### Problem
 Sensitive integration secrets are stored as plain values in database fields.
 
@@ -38,6 +40,8 @@ Sensitive integration secrets are stored as plain values in database fields.
 
 ## Ticket 2: Backup Encryption Controls and Evidence
 
+Status: In progress (backup encryption policy and restore drill template added; live drill evidence pending)
+
 ### Problem
 Backup encryption is not documented with verifiable evidence.
 
@@ -58,6 +62,8 @@ Backup encryption is not documented with verifiable evidence.
 - 1 day
 
 ## Ticket 3: Strong Password Policy Enforcement
+
+Status: In progress (registration complexity validation implemented; reset-flow coverage/tests pending)
 
 ### Problem
 Only minimum length is enforced; complexity rules are not.
@@ -85,6 +91,8 @@ Only minimum length is enforced; complexity rules are not.
 
 ## Ticket 4: Personal Data Access Audit Logging Expansion
 
+Status: In progress (Orders + CRM + admin/reporting read-access events implemented; export coverage pending)
+
 ### Problem
 Audit logs exist for selected actions but not complete personal-data access coverage.
 
@@ -110,6 +118,8 @@ Audit logs exist for selected actions but not complete personal-data access cove
 - 2 days
 
 ## Ticket 5: Data Loss Prevention Strategy
+
+Status: Planned
 
 ### Problem
 No formal DLP strategy is currently documented and operationalized.

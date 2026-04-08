@@ -5,6 +5,9 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/lib/store/auth';
 import toast from 'react-hot-toast';
+import axios from 'axios';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -12,6 +15,8 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resendingVerification, setResendingVerification] = useState(false);
+  const [resendCooldownSeconds, setResendCooldownSeconds] = useState(0);
 
   // Redirect if already authenticated
   useEffect(() => {
@@ -19,6 +24,16 @@ export default function LoginPage() {
       router.push('/dashboard');
     }
   }, [isAuthenticated, isInitialized, router]);
+
+  useEffect(() => {
+    if (resendCooldownSeconds <= 0) return;
+
+    const timer = setInterval(() => {
+      setResendCooldownSeconds((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [resendCooldownSeconds]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,6 +47,35 @@ export default function LoginPage() {
       toast.error(err.response?.data?.message || 'Login failed. Please check your credentials.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (!email.trim()) {
+      toast.error('Enter your email first to resend verification.');
+      return;
+    }
+
+    setResendingVerification(true);
+    try {
+      const response = await axios.post(`${API_URL}/auth/resend-verification`, {
+        email: email.trim(),
+      });
+
+      const tokenNote = response.data?.verificationToken
+        ? ` Dev token: ${response.data.verificationToken}`
+        : '';
+      setResendCooldownSeconds(60);
+      toast.success(`${response.data?.message || 'Verification email sent.'}${tokenNote}`);
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.message || 'Failed to resend verification email.';
+      const cooldownMatch = errorMessage.match(/(\d+)\s*seconds/i);
+      if (cooldownMatch?.[1]) {
+        setResendCooldownSeconds(Number(cooldownMatch[1]));
+      }
+      toast.error(errorMessage);
+    } finally {
+      setResendingVerification(false);
     }
   };
 
@@ -150,6 +194,14 @@ export default function LoginPage() {
                   className="w-full min-h-[44px] px-3 sm:px-4 py-2.5 sm:py-3 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
                   placeholder="••••••••"
                 />
+                <div className="mt-2 text-right">
+                  <Link
+                    href="/forgot-password"
+                    className="text-xs sm:text-sm font-medium text-primary-600 hover:text-primary-700"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
               </div>
 
               <button
@@ -181,6 +233,18 @@ export default function LoginPage() {
                   Create account
                 </Link>
               </p>
+              <button
+                type="button"
+                onClick={handleResendVerification}
+                disabled={resendingVerification || resendCooldownSeconds > 0}
+                className="mt-3 text-sm font-medium text-slate-600 hover:text-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {resendingVerification
+                  ? 'Sending verification...'
+                  : resendCooldownSeconds > 0
+                    ? `Resend available in ${resendCooldownSeconds}s`
+                    : 'Resend verification email'}
+              </button>
             </div>
           </div>
 

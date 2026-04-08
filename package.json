@@ -18,6 +18,8 @@
     "prisma:migrate": "cd backend && npm run prisma:migrate",
     "prisma:generate": "cd backend && npm run prisma:generate && cd ../worker && npm run prisma:generate",
     "prisma:studio": "cd backend && npm run prisma:studio",
+    "verify:auto": "cd backend && npm run security:check",
+    "verify:pre-release": "cd backend && npm run security:check && npm run build",
     "backend": "cd backend && npm run start:dev",
     "worker": "cd worker && npm run start:dev",
     "frontend": "cd frontend && npm run dev",

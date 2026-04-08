@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
+import { decryptSecret, encryptSecret } from '../utils/crypto.util';
 
 @Injectable()
 export class HealthCheckService {
@@ -143,7 +144,7 @@ export class HealthCheckService {
       
       const response = await axios.get(whatsappUrl, {
         headers: {
-          Authorization: `Bearer ${integration.accessToken}`,
+          Authorization: `Bearer ${decryptSecret(integration.accessToken)}`,
         },
         timeout: 5000, // Reduced from 10 seconds to 5 seconds
       });
@@ -187,6 +188,8 @@ export class HealthCheckService {
         return false;
       }
 
+      const refreshToken = decryptSecret(integration.refreshToken) as string;
+
       // Call Meta's token refresh endpoint
       const response = await axios.post(
         'https://graph.facebook.com/v17.0/oauth/access_token',
@@ -194,7 +197,7 @@ export class HealthCheckService {
           grant_type: 'fb_exchange_token',
           client_id: this.config.get('META_APP_ID'),
           client_secret: this.config.get('META_APP_SECRET'),
-          fb_exchange_token: integration.refreshToken,
+          fb_exchange_token: refreshToken,
         },
       );
 
@@ -207,7 +210,7 @@ export class HealthCheckService {
       await this.prisma.whatsAppIntegration.update({
         where: { id: integrationId },
         data: {
-          accessToken: access_token,
+          accessToken: encryptSecret(access_token) as string,
           tokenExpiresAt: expiresAt,
           healthStatus: 'healthy',
           healthError: null,

@@ -37,12 +37,22 @@ export const ordersApi = {
   updateStatus: (id: string, status: string) =>
     api.patch(`/orders/${id}/status`, { status }),
   getStatistics: (params?: any) => api.get('/orders/statistics', { params }),
+  exportOrders: (format: 'json' | 'csv' = 'json') =>
+    api.get('/orders/export', {
+      params: { format },
+      responseType: 'blob',
+    }),
 };
 
 export const crmApi = {
   getContacts: (params?: any) => api.get('/crm/contacts', { params }),
   getContact: (id: string) => api.get(`/crm/contacts/${id}`),
   createContact: (data: any) => api.post('/crm/contacts', data),
+  exportContacts: (format: 'json' | 'csv' = 'json') =>
+    api.get('/crm/contacts/export', {
+      params: { format },
+      responseType: 'blob',
+    }),
   getConversations: (params?: any) => api.get('/crm/conversations', { params }),
   getConversation: (id: string) => api.get(`/crm/conversations/${id}`),
   getTags: () => api.get('/crm/tags'),
