@@ -15,8 +15,13 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [lastLoginError, setLastLoginError] = useState('');
+  const [unverifiedEmail, setUnverifiedEmail] = useState('');
   const [resendingVerification, setResendingVerification] = useState(false);
   const [resendCooldownSeconds, setResendCooldownSeconds] = useState(0);
+
+  const isUnverifiedEmailError = (message: string) =>
+    /verify your email|not verified|unverified/i.test(message || '');
 
   // Redirect if already authenticated
   useEffect(() => {
@@ -38,20 +43,29 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setLastLoginError('');
+    setUnverifiedEmail('');
 
     try {
       await login(email, password);
       toast.success('Welcome back! 👋');
       router.push('/dashboard');
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Login failed. Please check your credentials.');
+      const errorMessage =
+        err.response?.data?.message || 'Login failed. Please check your credentials.';
+      setLastLoginError(errorMessage);
+      if (isUnverifiedEmailError(errorMessage)) {
+        setUnverifiedEmail(email.trim().toLowerCase());
+      }
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
   const handleResendVerification = async () => {
-    if (!email.trim()) {
+    const targetEmail = unverifiedEmail || email.trim().toLowerCase();
+    if (!targetEmail) {
       toast.error('Enter your email first to resend verification.');
       return;
     }
@@ -59,7 +73,7 @@ export default function LoginPage() {
     setResendingVerification(true);
     try {
       const response = await axios.post(`${API_URL}/auth/resend-verification`, {
-        email: email.trim(),
+        email: targetEmail,
       });
 
       const tokenNote = response.data?.verificationToken
@@ -233,18 +247,20 @@ export default function LoginPage() {
                   Create account
                 </Link>
               </p>
-              <button
-                type="button"
-                onClick={handleResendVerification}
-                disabled={resendingVerification || resendCooldownSeconds > 0}
-                className="mt-3 text-sm font-medium text-slate-600 hover:text-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {resendingVerification
-                  ? 'Sending verification...'
-                  : resendCooldownSeconds > 0
-                    ? `Resend available in ${resendCooldownSeconds}s`
-                    : 'Resend verification email'}
-              </button>
+              {isUnverifiedEmailError(lastLoginError) && unverifiedEmail && (
+                <button
+                  type="button"
+                  onClick={handleResendVerification}
+                  disabled={resendingVerification || resendCooldownSeconds > 0}
+                  className="mt-3 text-sm font-medium text-slate-600 hover:text-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {resendingVerification
+                    ? 'Sending verification...'
+                    : resendCooldownSeconds > 0
+                      ? `Resend available in ${resendCooldownSeconds}s`
+                      : "Didn't receive email? Resend verification"}
+                </button>
+              )}
             </div>
           </div>
 

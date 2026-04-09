@@ -327,18 +327,20 @@ export default function RegisterPage() {
                   Sign in
                 </Link>
               </p>
-              <button
-                type="button"
-                onClick={handleResendVerification}
-                disabled={resendingVerification || resendCooldownSeconds > 0}
-                className="mt-3 text-sm font-medium text-slate-600 hover:text-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {resendingVerification
-                  ? 'Resending verification...'
-                  : resendCooldownSeconds > 0
-                    ? `Resend available in ${resendCooldownSeconds}s`
-                    : "Didn't receive email? Resend verification"}
-              </button>
+              {verificationPendingEmail && (
+                <button
+                  type="button"
+                  onClick={handleResendVerification}
+                  disabled={resendingVerification || resendCooldownSeconds > 0}
+                  className="mt-3 text-sm font-medium text-slate-600 hover:text-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {resendingVerification
+                    ? 'Resending verification...'
+                    : resendCooldownSeconds > 0
+                      ? `Resend available in ${resendCooldownSeconds}s`
+                      : "Didn't receive email? Resend verification"}
+                </button>
+              )}
               {devVerificationToken && (
                 <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-left">
                   <p className="text-xs font-semibold text-amber-800">Development Mode</p>
