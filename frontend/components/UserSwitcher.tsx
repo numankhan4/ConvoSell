@@ -17,6 +17,7 @@ export default function UserSwitcher() {
   const { 
     user, 
     workspaceUsers, 
+    currentWorkspace,
     isImpersonating,
     originalUserId,
     impersonateUser, 
@@ -24,21 +25,21 @@ export default function UserSwitcher() {
     fetchWorkspaceUsers 
   } = useAuthStore();
   
-  const { hasPermission } = usePermissions();
+  const { isSuperAdmin } = usePermissions();
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Show if user has impersonate permission OR is currently impersonating
-  const canImpersonate = hasPermission('users:impersonate');
+  // Switch user is restricted to platform super admins.
+  const canImpersonate = isSuperAdmin;
   const shouldShowSwitcher = canImpersonate || isImpersonating;
 
   useEffect(() => {
     if (canImpersonate) {
       fetchWorkspaceUsers();
     }
-  }, [canImpersonate, fetchWorkspaceUsers]);
+  }, [canImpersonate, currentWorkspace?.id, fetchWorkspaceUsers]);
 
   // Close dropdown when clicking outside
   useEffect(() => {

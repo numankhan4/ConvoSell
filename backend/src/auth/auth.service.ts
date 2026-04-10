@@ -589,6 +589,8 @@ export class AuthService {
    * Impersonate another user
    */
   async impersonate(currentUserId: string, workspaceId: string, targetUserId: string) {
+    await this.assertSuperAdmin(currentUserId);
+
     // Verify both users are in the same workspace
     const targetMember = await this.prisma.workspaceMember.findUnique({
       where: {
@@ -691,7 +693,9 @@ export class AuthService {
   /**
    * Get all users in workspace
    */
-  async getWorkspaceUsers(workspaceId: string) {
+  async getWorkspaceUsers(workspaceId: string, requesterUserId: string) {
+    await this.assertSuperAdmin(requesterUserId);
+
     const members = await this.prisma.workspaceMember.findMany({
       where: {
         workspaceId,
@@ -714,7 +718,7 @@ export class AuthService {
       },
     });
 
-    await this.writeAudit(workspaceId, 'users.workspace.list.view', undefined, 'user', undefined, {
+    await this.writeAudit(workspaceId, 'users.workspace.list.view', requesterUserId, 'user', undefined, {
       resultCount: members.length,
     });
 
@@ -728,6 +732,17 @@ export class AuthService {
   /**
    * Remove sensitive fields from user object
    */
+  private async assertSuperAdmin(userId: string): Promise<void> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { isSuperAdmin: true, isActive: true },
+    });
+
+    if (!user || !user.isActive || !user.isSuperAdmin) {
+      throw new ForbiddenException('Switch user is only available for super admins');
+    }
+  }
+
   private sanitizeUser(user: any) {
     const { password, ...sanitized } = user;
     return sanitized;

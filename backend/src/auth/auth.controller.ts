@@ -9,10 +9,11 @@ import {
   ResetPasswordDto,
 } from './dto/auth.dto';
 import { Public } from '../common/decorators/public.decorator';
-import { CurrentUser } from '../common/decorators/user.decorator';
+import { CurrentUser, WorkspaceId } from '../common/decorators/user.decorator';
 import { LocalAuthGuard } from './guards/local-auth.guard';
 import { RequirePermission } from '../common/decorators/permission.decorator';
 import { Permission } from '../common/constants/permissions.constants';
+import { TenantGuard } from '../common/guards/tenant.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -86,12 +87,14 @@ export class AuthController {
    * Impersonate another user (requires USERS_IMPERSONATE permission)
    */
   @Post('impersonate/:userId')
+  @UseGuards(TenantGuard)
   @RequirePermission(Permission.USERS_IMPERSONATE)
   async impersonate(
     @CurrentUser() user: any,
+    @WorkspaceId() workspaceId: string,
     @Param('userId') targetUserId: string,
   ) {
-    return this.authService.impersonate(user.sub, user.workspaceId, targetUserId);
+    return this.authService.impersonate(user.sub, workspaceId, targetUserId);
   }
 
   /**
@@ -108,8 +111,12 @@ export class AuthController {
    * Get all users in current workspace (requires USERS_VIEW_ALL permission)
    */
   @Get('workspace-users')
+  @UseGuards(TenantGuard)
   @RequirePermission(Permission.USERS_VIEW_ALL)
-  async getWorkspaceUsers(@CurrentUser() user: any) {
-    return this.authService.getWorkspaceUsers(user.workspaceId);
+  async getWorkspaceUsers(
+    @CurrentUser() user: any,
+    @WorkspaceId() workspaceId: string,
+  ) {
+    return this.authService.getWorkspaceUsers(workspaceId, user.sub);
   }
 }
