@@ -7,7 +7,8 @@
     "build": "tsc",
     "start": "node dist/main.js",
     "start:dev": "ts-node src/main.ts",
-    "watch": "nodemon --watch src --exec ts-node src/main.ts"
+    "watch": "nodemon --watch src --exec ts-node src/main.ts",
+    "verification:run-now": "ts-node src/scripts/run-verification-now.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.10.2",

@@ -54,11 +54,12 @@ export default function OrdersPage() {
     loadOrders();
     loadStatistics();
 
-    // Poll orders every 5 seconds to catch WhatsApp button updates
+    // Poll less aggressively and only while tab is visible.
     pollingIntervalRef.current = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
       loadOrders();
       loadStatistics();
-    }, 5000);
+    }, 15000);
 
     return () => {
       if (pollingIntervalRef.current) {

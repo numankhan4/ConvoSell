@@ -44,19 +44,8 @@ export class OrdersService {
     const limit = params.limit || 50;
     const skip = (page - 1) * limit;
 
-    console.log('🔍 getOrders called with:', {
-      workspaceId,
-      page,
-      limit,
-      skip,
-      status: params.status,
-      search: params.search,
-    });
-
     // Get active Shopify store ID for filtering
     const activeStoreId = await this.settingsService.getActiveShopifyStoreId(workspaceId);
-    
-    console.log('🏪 Active Shopify Store ID:', activeStoreId);
 
     const where: any = { 
       workspaceId,
@@ -103,22 +92,6 @@ export class OrdersService {
       }),
       this.prisma.order.count({ where }),
     ]);
-
-    console.log('✅ Query result:', {
-      ordersReturned: orders.length,
-      total,
-      requestedLimit: limit,
-      calculatedPages: Math.ceil(total / limit),
-    });
-
-    await this.writeReadAudit(workspaceId, 'orders.list.view', 'order', null, {
-      page,
-      limit,
-      status: params.status || null,
-      search: !!params.search,
-      resultCount: orders.length,
-      total,
-    });
 
     return {
       data: orders,
@@ -244,11 +217,6 @@ export class OrdersService {
         _avg: { responseTimeMinutes: true },
       }),
     ]);
-
-    await this.writeReadAudit(workspaceId, 'orders.statistics.view', 'order', null, {
-      statusFilter: statusFilter || 'all',
-      totalOrders,
-    });
 
     return {
       totalOrders,

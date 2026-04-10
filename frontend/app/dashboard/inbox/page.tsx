@@ -40,10 +40,11 @@ export default function InboxPage() {
   useEffect(() => {
     loadConversations();
     
-    // Poll conversations list every 5 seconds
+    // Poll conversations at a moderate interval and only on visible tab.
     conversationsPollingRef.current = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
       loadConversations();
-    }, 5000);
+    }, 10000);
 
     return () => {
       if (conversationsPollingRef.current) {
@@ -58,11 +59,12 @@ export default function InboxPage() {
       clearInterval(pollingIntervalRef.current);
     }
 
-    // Start polling for messages when a conversation is selected
+    // Poll selected conversation messages, but avoid background-tab traffic.
     if (selectedConversation) {
       pollingIntervalRef.current = setInterval(() => {
+        if (typeof document !== 'undefined' && document.hidden) return;
         loadMessages(selectedConversation.id, true);
-      }, 3000); // Poll every 3 seconds
+      }, 5000);
     }
 
     return () => {
@@ -95,17 +97,7 @@ export default function InboxPage() {
         }
       }
       const loadedMessages = response.data.messages || [];
-      
-      // Debug: Log message statuses
-      console.log('Loaded messages:', loadedMessages.map((m: any) => ({ 
-        id: m.id, 
-        content: m.content?.substring(0, 20), 
-        status: m.status,
-        direction: m.direction,
-        errorCode: m.errorCode,
-        errorMessage: m.errorMessage
-      })));
-      
+
       setMessages(loadedMessages);
     } catch (error) {
       console.error('Failed to load messages', error);
@@ -161,8 +153,9 @@ export default function InboxPage() {
         
         // Resume polling
         pollingIntervalRef.current = setInterval(() => {
+          if (typeof document !== 'undefined' && document.hidden) return;
           loadMessages(selectedConversation.id, true);
-        }, 3000);
+        }, 5000);
       }, 1000);
       
     } catch (error: any) {

@@ -34,6 +34,53 @@ const DEFAULT_POLICY: VerificationPolicy = {
   readAwareEscalation: true,
 };
 
+let verificationSchemaReady: boolean | null = null;
+
+async function isVerificationSchemaReady(prisma: PrismaClient): Promise<boolean> {
+  if (verificationSchemaReady !== null) {
+    return verificationSchemaReady;
+  }
+
+  try {
+    const orderCols = await prisma.$queryRawUnsafe<Array<{ column_name: string }>>(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'orders'
+         AND column_name IN ('followupCount', 'verificationOutcome', 'verificationFinalizedAt')`,
+    );
+
+    const workspaceCols = await prisma.$queryRawUnsafe<Array<{ column_name: string }>>(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'workspaces'
+         AND column_name IN (
+           'verificationEnabled',
+           'verificationScope',
+           'verificationFirstFollowupMinutes',
+           'verificationFinalTimeoutMinutes',
+           'verificationMaxFollowups',
+           'verificationReadAwareEscalation'
+         )`,
+    );
+
+    verificationSchemaReady = orderCols.length === 3 && workspaceCols.length === 6;
+
+    if (!verificationSchemaReady) {
+      console.warn(
+        'Order verification schema not ready in this database. Skipping verification escalation cycle until migration is applied.',
+      );
+    }
+
+    return verificationSchemaReady;
+  } catch (error: any) {
+    console.warn('Unable to verify order verification schema readiness:', error?.message || error);
+    verificationSchemaReady = false;
+    return false;
+  }
+}
+
 async function getWorkspacePolicy(prisma: PrismaClient, workspaceId: string): Promise<VerificationPolicy> {
   const rows = await prisma.$queryRawUnsafe<any[]>(
     `SELECT "verificationEnabled",
@@ -302,6 +349,11 @@ async function finalizeAsUnresponsive(prisma: PrismaClient, order: PendingOrderR
 }
 
 export async function processOrderVerificationEscalations(prisma: PrismaClient): Promise<void> {
+  const schemaReady = await isVerificationSchemaReady(prisma);
+  if (!schemaReady) {
+    return;
+  }
+
   const pendingOrders = await prisma.$queryRawUnsafe<PendingOrderRow[]>(
     `SELECT id,
             "workspaceId",

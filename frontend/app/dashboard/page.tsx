@@ -15,10 +15,11 @@ export default function DashboardPage() {
   useEffect(() => {
     loadStats();
 
-    // Poll stats every 5 seconds to keep dashboard in sync
+    // Poll stats less aggressively and only while tab is visible.
     pollingIntervalRef.current = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
       loadStats();
-    }, 5000);
+    }, 20000);
 
     return () => {
       if (pollingIntervalRef.current) {
