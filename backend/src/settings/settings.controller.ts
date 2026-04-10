@@ -24,6 +24,31 @@ export class SettingsController {
   ) {}
 
   // ============================================================
+  // ORDER VERIFICATION POLICY
+  // ============================================================
+
+  @Get('order-verification')
+  async getOrderVerificationSettings(@Request() req) {
+    return this.settingsService.getOrderVerificationSettings(req.user.workspaceId);
+  }
+
+  @Put('order-verification')
+  async updateOrderVerificationSettings(
+    @Request() req,
+    @Body()
+    dto: {
+      enabled?: boolean;
+      scope?: 'cod_only' | 'all_orders';
+      firstFollowupMinutes?: number;
+      finalTimeoutMinutes?: number;
+      maxFollowups?: number;
+      readAwareEscalation?: boolean;
+    },
+  ) {
+    return this.settingsService.updateOrderVerificationSettings(req.user.workspaceId, dto);
+  }
+
+  // ============================================================
   // WHATSAPP INTEGRATION
   // ============================================================
 

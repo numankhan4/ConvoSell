@@ -1,6 +1,6 @@
 interface SettingsTabsProps {
-  activeTab: 'whatsapp' | 'shopify';
-  onChange: (tab: 'whatsapp' | 'shopify') => void;
+  activeTab: 'whatsapp' | 'shopify' | 'verification';
+  onChange: (tab: 'whatsapp' | 'shopify' | 'verification') => void;
 }
 
 export function SettingsTabs({ activeTab, onChange }: SettingsTabsProps) {
@@ -38,6 +38,23 @@ export function SettingsTabs({ activeTab, onChange }: SettingsTabsProps) {
           <span>Shopify Store</span>
         </div>
         {activeTab === 'shopify' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary-600"></div>}
+      </button>
+
+      <button
+        onClick={() => onChange('verification')}
+        className={`flex-1 py-3 sm:py-4 px-3 sm:px-6 text-xs sm:text-sm font-medium transition-colors relative ${
+          activeTab === 'verification'
+            ? 'text-primary-600 bg-primary-50'
+            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+        }`}
+      >
+        <div className="flex items-center justify-center space-x-1 sm:space-x-2">
+          <svg className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+          <span>Order Verification</span>
+        </div>
+        {activeTab === 'verification' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary-600"></div>}
       </button>
     </nav>
   );

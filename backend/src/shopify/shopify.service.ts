@@ -156,8 +156,18 @@ export class ShopifyService {
           currency: orderData.currency,
           items: orderData.line_items || [],
           shippingAddress: orderData.shipping_address,
+          verificationOutcome: 'pending_response',
         },
       });
+
+      if (!contact.tags.includes('pending-verification')) {
+        await this.prisma.contact.update({
+          where: { id: contact.id },
+          data: {
+            tags: { push: 'pending-verification' },
+          },
+        });
+      }
     }
 
     // Only create outbox event for NEW orders (to trigger automation once)

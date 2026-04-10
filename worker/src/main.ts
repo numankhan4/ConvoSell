@@ -4,6 +4,7 @@ import * as dotenv from 'dotenv';
 import { processOrderEvent } from './processors/order-processor';
 import { processSendMessage } from './processors/message-processor';
 import { healthCheckProcessor } from './processors/health-check-processor';
+import { processOrderVerificationEscalations } from './processors/order-verification-processor';
 
 // Load environment variables
 dotenv.config();
@@ -140,11 +141,22 @@ const healthCheckInterval = setInterval(async () => {
   }
 }, 60 * 60 * 1000); // 1 hour
 
+// Run order verification escalation checks every 5 minutes
+const verificationEscalationInterval = setInterval(async () => {
+  try {
+    await processOrderVerificationEscalations(prisma);
+  } catch (error) {
+    console.error('Order verification escalation cycle failed:', error);
+  }
+}, 5 * 60 * 1000);
+
 // Run initial health check after 30 seconds
 setTimeout(async () => {
   try {
     console.log('Running initial health check...');
     await healthCheckProcessor(prisma);
+    console.log('Running initial order verification escalation check...');
+    await processOrderVerificationEscalations(prisma);
   } catch (error) {
     console.error('Initial health check failed:', error);
   }
@@ -154,6 +166,7 @@ setTimeout(async () => {
 process.on('SIGINT', async () => {
   console.log('Shutting down workers...');
   clearInterval(healthCheckInterval);
+  clearInterval(verificationEscalationInterval);
   await outboxWorker.close();
   await whatsappWorker.close();
   await prisma.$disconnect();
@@ -163,3 +176,4 @@ process.on('SIGINT', async () => {
 console.log('🚀 Worker started');
 console.log('📦 Listening to queues: outbox, whatsapp');
 console.log('🏥 Health checks will run every hour');
+console.log('⏱️ Order verification escalation checks run every 5 minutes');

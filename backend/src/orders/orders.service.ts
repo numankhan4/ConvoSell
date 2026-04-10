@@ -208,6 +208,7 @@ export class OrdersService {
     const [
       totalOrders,
       pendingOrders,
+      fakeOrders,
       confirmedOrders,
       cancelledOrders,
       completedOrders,
@@ -218,6 +219,7 @@ export class OrdersService {
     ] = await Promise.all([
       this.prisma.order.count({ where: baseWhere }),
       this.prisma.order.count({ where: { ...baseWhere, status: 'pending' } }),
+      this.prisma.order.count({ where: { ...baseWhere, status: 'fake' } }),
       this.prisma.order.count({ where: { ...baseWhere, status: 'confirmed' } }),
       this.prisma.order.count({ where: { ...baseWhere, status: 'cancelled' } }),
       this.prisma.order.count({ where: { ...baseWhere, status: 'completed' } }),
@@ -251,6 +253,7 @@ export class OrdersService {
     return {
       totalOrders,
       pendingOrders,
+      fakeOrders,
       confirmedOrders,
       cancelledOrders,
       completedOrders,

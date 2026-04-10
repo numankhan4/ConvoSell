@@ -20,6 +20,118 @@ export class SettingsService {
   ) {}
 
   // ============================================================
+  // ORDER VERIFICATION POLICY
+  // ============================================================
+
+  async getOrderVerificationSettings(workspaceId: string) {
+    const rows = await this.prisma.$queryRawUnsafe<any[]>(
+      `SELECT id,
+              "verificationEnabled",
+              "verificationScope",
+              "verificationFirstFollowupMinutes",
+              "verificationFinalTimeoutMinutes",
+              "verificationMaxFollowups",
+              "verificationReadAwareEscalation"
+       FROM workspaces
+       WHERE id = $1
+       LIMIT 1`,
+      workspaceId,
+    );
+
+    if (!rows[0]) {
+      throw new NotFoundException('Workspace not found');
+    }
+
+    return {
+      enabled: rows[0].verificationEnabled,
+      scope: rows[0].verificationScope,
+      firstFollowupMinutes: rows[0].verificationFirstFollowupMinutes,
+      finalTimeoutMinutes: rows[0].verificationFinalTimeoutMinutes,
+      maxFollowups: rows[0].verificationMaxFollowups,
+      readAwareEscalation: rows[0].verificationReadAwareEscalation,
+    };
+  }
+
+  async updateOrderVerificationSettings(
+    workspaceId: string,
+    dto: {
+      enabled?: boolean;
+      scope?: 'cod_only' | 'all_orders';
+      firstFollowupMinutes?: number;
+      finalTimeoutMinutes?: number;
+      maxFollowups?: number;
+      readAwareEscalation?: boolean;
+    },
+  ) {
+    if (dto.scope && !['cod_only', 'all_orders'].includes(dto.scope)) {
+      throw new BadRequestException('scope must be either cod_only or all_orders');
+    }
+
+    if (dto.firstFollowupMinutes !== undefined && (dto.firstFollowupMinutes < 15 || dto.firstFollowupMinutes > 1440)) {
+      throw new BadRequestException('firstFollowupMinutes must be between 15 and 1440');
+    }
+
+    if (dto.finalTimeoutMinutes !== undefined && (dto.finalTimeoutMinutes < 60 || dto.finalTimeoutMinutes > 10080)) {
+      throw new BadRequestException('finalTimeoutMinutes must be between 60 and 10080');
+    }
+
+    if (dto.maxFollowups !== undefined && (dto.maxFollowups < 0 || dto.maxFollowups > 2)) {
+      throw new BadRequestException('maxFollowups must be between 0 and 2');
+    }
+
+    if (
+      dto.firstFollowupMinutes !== undefined &&
+      dto.finalTimeoutMinutes !== undefined &&
+      dto.firstFollowupMinutes >= dto.finalTimeoutMinutes
+    ) {
+      throw new BadRequestException('firstFollowupMinutes must be lower than finalTimeoutMinutes');
+    }
+
+    const rows = await this.prisma.$queryRawUnsafe<any[]>(
+      `UPDATE workspaces
+       SET "verificationEnabled" = COALESCE($2, "verificationEnabled"),
+           "verificationScope" = COALESCE($3, "verificationScope"),
+           "verificationFirstFollowupMinutes" = COALESCE($4, "verificationFirstFollowupMinutes"),
+           "verificationFinalTimeoutMinutes" = COALESCE($5, "verificationFinalTimeoutMinutes"),
+           "verificationMaxFollowups" = COALESCE($6, "verificationMaxFollowups"),
+           "verificationReadAwareEscalation" = COALESCE($7, "verificationReadAwareEscalation"),
+           "updatedAt" = NOW()
+       WHERE id = $1
+       RETURNING id,
+                 "verificationEnabled",
+                 "verificationScope",
+                 "verificationFirstFollowupMinutes",
+                 "verificationFinalTimeoutMinutes",
+                 "verificationMaxFollowups",
+                 "verificationReadAwareEscalation"`,
+      workspaceId,
+      dto.enabled ?? null,
+      dto.scope ?? null,
+      dto.firstFollowupMinutes ?? null,
+      dto.finalTimeoutMinutes ?? null,
+      dto.maxFollowups ?? null,
+      dto.readAwareEscalation ?? null,
+    );
+
+    if (!rows[0]) {
+      throw new NotFoundException('Workspace not found');
+    }
+
+    if (rows[0].verificationFirstFollowupMinutes >= rows[0].verificationFinalTimeoutMinutes) {
+      throw new BadRequestException('firstFollowupMinutes must be lower than finalTimeoutMinutes');
+    }
+
+    return {
+      enabled: rows[0].verificationEnabled,
+      scope: rows[0].verificationScope,
+      firstFollowupMinutes: rows[0].verificationFirstFollowupMinutes,
+      finalTimeoutMinutes: rows[0].verificationFinalTimeoutMinutes,
+      maxFollowups: rows[0].verificationMaxFollowups,
+      readAwareEscalation: rows[0].verificationReadAwareEscalation,
+    };
+  }
+
+  // ============================================================
   // WHATSAPP INTEGRATION
   // ============================================================
 

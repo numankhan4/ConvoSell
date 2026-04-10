@@ -79,12 +79,22 @@ export default function OrdersPage() {
       console.log('📊 Loading orders with params:', params);
       
       const response = await ordersApi.getOrders(params);
-      setOrders(response.data.data);
-      setPaginationMeta(response.data.meta);
+      const nextOrders = response.data.data || [];
+      const nextMeta = response.data.meta;
+
+      // Guard against stale page index (e.g., after filters/data changes).
+      if (nextMeta && nextMeta.total > 0 && currentPage > nextMeta.totalPages) {
+        setCurrentPage(Math.max(1, nextMeta.totalPages));
+        return;
+      }
+
+      setOrders(nextOrders);
+      setPaginationMeta(nextMeta);
       
-      console.log('✅ Loaded', response.data.data.length, 'orders, total:', response.data.meta.total);
+      console.log('✅ Loaded', nextOrders.length, 'orders, total:', nextMeta?.total || 0);
     } catch (error) {
       console.error('Failed to load orders', error);
+      toast.error('Unable to load orders. Please refresh and try again.');
     } finally {
       setLoading(false);
     }
@@ -133,6 +143,7 @@ export default function OrdersPage() {
       confirmed: 'bg-green-100 text-green-800',
       cancelled: 'bg-red-100 text-red-800',
       completed: 'bg-blue-100 text-blue-800',
+      fake: 'bg-rose-100 text-rose-800',
     };
     return colors[status] || 'bg-gray-100 text-gray-800';
   };
@@ -292,7 +303,7 @@ export default function OrdersPage() {
 
         {/* Status Filters */}
         <div className="flex gap-2 overflow-x-auto pb-2 sm:pb-0 -mx-1 px-1 scrollbar-hide">
-          {['all', 'pending', 'confirmed', 'cancelled', 'completed'].map((status) => (
+          {['all', 'pending', 'confirmed', 'cancelled', 'completed', 'fake'].map((status) => (
             <button
               key={status}
               onClick={() => setStatusFilter(status)}

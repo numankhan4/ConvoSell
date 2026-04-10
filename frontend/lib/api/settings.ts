@@ -4,6 +4,31 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
 
 // Settings API
 export const settingsApi = {
+  // Order verification policy
+  getOrderVerificationSettings: async (token: string) => {
+    const response = await axios.get(`${API_URL}/settings/order-verification`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return response.data;
+  },
+
+  updateOrderVerificationSettings: async (
+    token: string,
+    data: {
+      enabled?: boolean;
+      scope?: 'cod_only' | 'all_orders';
+      firstFollowupMinutes?: number;
+      finalTimeoutMinutes?: number;
+      maxFollowups?: number;
+      readAwareEscalation?: boolean;
+    },
+  ) => {
+    const response = await axios.put(`${API_URL}/settings/order-verification`, data, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return response.data;
+  },
+
   // WhatsApp Integration
   getWhatsAppIntegration: async (token: string) => {
     const response = await axios.get(`${API_URL}/settings/whatsapp`, {

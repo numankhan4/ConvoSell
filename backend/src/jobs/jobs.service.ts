@@ -32,13 +32,24 @@ export class JobsService {
     const events = await this.prisma.outboxEvent.findMany({
       where: {
         status: 'pending',
-        attempts: { lt: 3 },
+        attempts: { lt: 10 },
       },
       take: 10,
       orderBy: { createdAt: 'asc' },
     });
 
     for (const event of events) {
+      if (event.attempts >= event.maxAttempts) {
+        await this.prisma.outboxEvent.update({
+          where: { id: event.id },
+          data: {
+            status: 'failed',
+            lastError: event.lastError || `Max attempts (${event.maxAttempts}) exceeded`,
+          },
+        });
+        continue;
+      }
+
       try {
         // Mark as processing
         await this.prisma.outboxEvent.update({

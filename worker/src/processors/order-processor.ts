@@ -297,6 +297,10 @@ async function executeSendMessage(action: any, payload: any, prisma: PrismaClien
       whatsappMessageId,
       status: 'sent',
       sentAt: new Date(),
+      metadata: {
+        orderId: order.id,
+        verificationType: 'initial',
+      },
     },
   });
   console.log(`   💾 Message saved to database`);

@@ -918,6 +918,8 @@ export class WhatsAppService {
           status: 'confirmed',
           confirmedAt: new Date(),
           responseTimeMinutes,
+          verificationOutcome: 'confirmed',
+          verificationFinalizedAt: new Date(),
         },
       });
 
@@ -1035,6 +1037,8 @@ export class WhatsAppService {
           status: 'cancelled',
           cancelledAt: new Date(),
           shopifyCancelled: order.shopifyStore ? true : false,
+          verificationOutcome: 'cancelled',
+          verificationFinalizedAt: new Date(),
         },
         select: { status: true, cancelledAt: true },
       });

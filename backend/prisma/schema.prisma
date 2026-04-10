@@ -66,6 +66,14 @@ model Workspace {
   templateMessagesLimit   Int      @default(0) // 0 for free, 50 starter, 200 pro, 1000 business, unlimited enterprise
   templateMessagesUsed    Int      @default(0)
   quotaResetAt            DateTime @default(now())
+
+  // Order verification policy (workspace-configurable)
+  verificationEnabled             Boolean @default(true)
+  verificationScope               String  @default("cod_only") // cod_only, all_orders
+  verificationFirstFollowupMinutes Int    @default(120)
+  verificationFinalTimeoutMinutes  Int    @default(1440)
+  verificationMaxFollowups         Int    @default(2)
+  verificationReadAwareEscalation  Boolean @default(true)
   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -418,7 +426,7 @@ model Order {
   externalOrderId     String // Shopify order ID or custom
   externalOrderNumber String? // Shopify order number (#1001)
   
-  status              String    @default("pending") // pending, confirmed, cancelled, completed
+  status              String    @default("pending") // pending, confirmed, cancelled, completed, fake
   paymentMethod       String    @default("cod") // cod, prepaid
   
   totalAmount         Float
@@ -434,6 +442,9 @@ model Order {
   // Automation tracking
   confirmationSentAt  DateTime?
   reminderSentAt      DateTime?
+  followupCount       Int       @default(0)
+  verificationOutcome String?   // pending_response, confirmed, cancelled, fake_suspected
+  verificationFinalizedAt DateTime?
   
   // Enhanced automation fields
   responseTimeMinutes Int? // Time taken to confirm/cancel (minutes)
