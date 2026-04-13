@@ -91,6 +91,13 @@ model Workspace {
   auditLogs            AuditLog[]
   whatsappTemplates    WhatsAppMessageTemplate[]
   templateMessages     TemplateMessage[]
+  fraudAssessments     FraudAssessment[]
+  fraudSignals         FraudSignal[]
+  fraudRuleConfig      FraudRuleConfig?
+  phoneFingerprints    PhoneFingerprint[]
+  addressFingerprints  AddressFingerprint[]
+  deviceFingerprints   DeviceFingerprint[]
+  fraudDecisionAudits  FraudDecisionAudit[]
 
   @@index([slug])
   @@index([subscriptionStatus])
@@ -458,11 +465,180 @@ model Order {
   workspace     Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   contact       Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
   shopifyStore  ShopifyStore? @relation(fields: [shopifyStoreId], references: [id], onDelete: SetNull)
+  fraudAssessments FraudAssessment[]
+  fraudSignals     FraudSignal[]
+  fraudDecisionAudits FraudDecisionAudit[]
 
   @@unique([workspaceId, externalOrderId])
   @@index([workspaceId, status, createdAt])
   @@index([contactId])
   @@map("orders")
+}
+
+// ============================================================
+// FRAUD DETECTION
+// ============================================================
+
+model FraudRuleConfig {
+  id                   String   @id @default(cuid())
+  workspaceId          String   @unique
+  rolloutMode          String   @default("shadow") // shadow, verify_only, enforce
+  approveMaxThreshold  Int      @default(29)
+  verifyMaxThreshold   Int      @default(69)
+  blockMinThreshold    Int      @default(70)
+
+  duplicateWeight      Float    @default(0.30)
+  phoneWeight          Float    @default(0.20)
+  codWeight            Float    @default(0.25)
+  geoWeight            Float    @default(0.10)
+  trustWeight          Float    @default(0.15)
+
+  maxSingleContribution Int     @default(35)
+  requireTwoHighSignals Boolean @default(true)
+  highSignalThreshold   Int     @default(70)
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("fraud_rule_configs")
+}
+
+model FraudAssessment {
+  id                String   @id @default(cuid())
+  workspaceId       String
+  orderId           String
+
+  duplicateScore    Int      @default(0)
+  phoneRiskScore    Int      @default(0)
+  codRiskScore      Int      @default(0)
+  trustScore        Int      @default(50)
+  geoRiskScore      Int      @default(0)
+
+  finalFraudScore   Int
+  riskLevel         String   // LOW, MEDIUM, HIGH
+  fraudDecision     String   // APPROVE, VERIFY, BLOCK
+
+  explanation       Json     @default("[]")
+  detectorBreakdown Json     @default("{}")
+  recommendedAction String
+  modelVersion      String   @default("rules-v1")
+  processingTimeMs  Int?
+  checkedAt         DateTime @default(now())
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  order     Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  signals   FraudSignal[]
+  decisionAudits FraudDecisionAudit[]
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, finalFraudScore, createdAt])
+  @@index([orderId, checkedAt])
+  @@map("fraud_assessments")
+}
+
+model FraudSignal {
+  id                String   @id @default(cuid())
+  workspaceId       String
+  orderId           String
+  assessmentId      String
+  detectorName      String
+  signalType        String
+  severity          String   // low, medium, high
+  scoreContribution Int      @default(0)
+  reason            String
+  metadata          Json     @default("{}")
+  createdAt         DateTime @default(now())
+
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  order       Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  assessment  FraudAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([orderId, createdAt])
+  @@map("fraud_signals")
+}
+
+model PhoneFingerprint {
+  id                 String   @id @default(cuid())
+  workspaceId        String
+  normalizedPhone    String
+  ordersLast24h      Int      @default(0)
+  ordersLast7d       Int      @default(0)
+  uniqueNamesLast7d  Int      @default(0)
+  uniqueAddressesLast7d Int   @default(0)
+  cancellationRatio7d Float   @default(0)
+  lastSeenAt         DateTime @default(now())
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, normalizedPhone])
+  @@index([workspaceId, lastSeenAt])
+  @@map("phone_fingerprints")
+}
+
+model AddressFingerprint {
+  id                 String   @id @default(cuid())
+  workspaceId        String
+  addressHash        String
+  ordersLast24h      Int      @default(0)
+  ordersLast7d       Int      @default(0)
+  uniquePhonesLast7d Int      @default(0)
+  uniqueNamesLast7d  Int      @default(0)
+  lastSeenAt         DateTime @default(now())
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, addressHash])
+  @@index([workspaceId, lastSeenAt])
+  @@map("address_fingerprints")
+}
+
+model DeviceFingerprint {
+  id                String   @id @default(cuid())
+  workspaceId       String
+  deviceKey         String
+  ordersLast24h     Int      @default(0)
+  ordersLast7d      Int      @default(0)
+  uniquePhonesLast7d Int     @default(0)
+  uniqueAddressesLast7d Int  @default(0)
+  lastSeenAt        DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, deviceKey])
+  @@index([workspaceId, lastSeenAt])
+  @@map("device_fingerprints")
+}
+
+model FraudDecisionAudit {
+  id               String   @id @default(cuid())
+  workspaceId      String
+  orderId          String
+  assessmentId     String
+  previousDecision String?
+  newDecision      String
+  changedBy        String   @default("system")
+  reason           String
+  createdAt        DateTime @default(now())
+
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  order       Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  assessment  FraudAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([orderId, createdAt])
+  @@map("fraud_decision_audits")
 }
 
 // ============================================================

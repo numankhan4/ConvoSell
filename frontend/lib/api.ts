@@ -44,6 +44,29 @@ export const ordersApi = {
     }),
 };
 
+export const fraudApi = {
+  checkOrder: (data: {
+    orderId: string;
+    forceRecompute?: boolean;
+    includeGeo?: boolean;
+    ipAddress?: string;
+    userAgent?: string;
+    deviceFingerprint?: string;
+  }) => api.post('/fraud/check', data),
+  checkBatch: (data: {
+    orderIds: string[];
+    forceRecompute?: boolean;
+    includeGeo?: boolean;
+  }) => api.post('/fraud/check-batch', data),
+  getReport: (orderId: string) => api.get(`/fraud/report/${orderId}`),
+  getSummaries: (orderIds: string[]) =>
+    api.get('/fraud/summaries', {
+      params: {
+        orderIds: orderIds.join(','),
+      },
+    }),
+};
+
 export const crmApi = {
   getContacts: (params?: any) => api.get('/crm/contacts', { params }),
   getContact: (id: string) => api.get(`/crm/contacts/${id}`),

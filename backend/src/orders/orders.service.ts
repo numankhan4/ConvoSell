@@ -88,13 +88,38 @@ export class OrdersService {
               shopDomain: true,
             },
           },
+          fraudAssessments: {
+            orderBy: { checkedAt: 'desc' },
+            take: 1,
+            select: {
+              finalFraudScore: true,
+              riskLevel: true,
+              fraudDecision: true,
+              checkedAt: true,
+            },
+          },
         },
       }),
       this.prisma.order.count({ where }),
     ]);
 
+    const withFraudSummary = orders.map((order) => {
+      const latestFraud = order.fraudAssessments?.[0] || null;
+      return {
+        ...order,
+        fraudSummary: latestFraud
+          ? {
+              final_fraud_score: latestFraud.finalFraudScore,
+              risk_level: latestFraud.riskLevel,
+              fraud_decision: latestFraud.fraudDecision,
+              checked_at: latestFraud.checkedAt,
+            }
+          : null,
+      };
+    });
+
     return {
-      data: orders,
+      data: withFraudSummary,
       meta: {
         page,
         limit,
@@ -118,6 +143,16 @@ export class OrdersService {
             shopDomain: true,
           },
         },
+        fraudAssessments: {
+          orderBy: { checkedAt: 'desc' },
+          take: 1,
+          select: {
+            finalFraudScore: true,
+            riskLevel: true,
+            fraudDecision: true,
+            checkedAt: true,
+          },
+        },
       },
     });
 
@@ -125,7 +160,22 @@ export class OrdersService {
       found: !!order,
     });
 
-    return order;
+    if (!order) {
+      return null;
+    }
+
+    const latestFraud = order.fraudAssessments?.[0] || null;
+    return {
+      ...order,
+      fraudSummary: latestFraud
+        ? {
+            final_fraud_score: latestFraud.finalFraudScore,
+            risk_level: latestFraud.riskLevel,
+            fraud_decision: latestFraud.fraudDecision,
+            checked_at: latestFraud.checkedAt,
+          }
+        : null,
+    };
   }
 
   /**

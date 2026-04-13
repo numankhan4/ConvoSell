@@ -185,6 +185,20 @@ export class ShopifyService {
           },
         },
       });
+
+      await this.prisma.outboxEvent.create({
+        data: {
+          workspaceId,
+          eventType: 'order.fraud_check',
+          aggregateId: order.id,
+          payload: {
+            workspaceId,
+            orderId: order.id,
+            contactId: contact.id,
+            paymentMethod: order.paymentMethod,
+          },
+        },
+      });
       this.logger.log(`Order created with outbox event: ${order.id}`);
     } else {
       this.logger.log(`Order updated (no new automation): ${order.id}`);

@@ -9,6 +9,11 @@ export async function processOrderEvent(data: any, prisma: PrismaClient) {
 
   console.log(`Processing order event: ${eventType}`);
 
+  if (eventType === 'order.fraud_check') {
+    await runFraudCheck(payload);
+    return;
+  }
+
   // Prefer workspace from payload; fallback to order lookup for older events
   let workspaceId = payload?.workspaceId as string | undefined;
   if (!workspaceId && payload?.orderId) {
@@ -55,6 +60,43 @@ export async function processOrderEvent(data: any, prisma: PrismaClient) {
       }
     }
   }
+}
+
+async function runFraudCheck(payload: any) {
+  if (!payload?.orderId) {
+    console.warn('Skipping fraud check event: missing orderId');
+    return;
+  }
+
+  const backendUrl = process.env.BACKEND_INTERNAL_URL || process.env.BACKEND_URL || 'http://localhost:3000';
+  const internalKey = process.env.INTERNAL_WORKER_KEY;
+
+  if (!internalKey) {
+    console.warn('Skipping fraud check event: INTERNAL_WORKER_KEY is not configured');
+    return;
+  }
+
+  const axios = require('axios');
+  await axios.post(
+    `${backendUrl}/api/fraud/internal/check`,
+    {
+      orderId: payload.orderId,
+      forceRecompute: true,
+      includeGeo: true,
+      ipAddress: payload.ipAddress,
+      userAgent: payload.userAgent,
+      deviceFingerprint: payload.deviceFingerprint,
+    },
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        'x-internal-worker-key': internalKey,
+      },
+      timeout: 1500,
+    },
+  );
+
+  console.log(`Fraud assessment completed for order: ${payload.orderId}`);
 }
 
 /**

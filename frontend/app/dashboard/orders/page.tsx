@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { ordersApi, automationsApi } from '@/lib/api';
+import { ordersApi, automationsApi, fraudApi } from '@/lib/api';
 import { PermissionGate } from '@/components/PermissionGate';
 import ExportConfirmModal from '@/components/ExportConfirmModal';
 import { usePermissions, Permissions } from '@/lib/hooks/usePermissions';
@@ -29,6 +29,50 @@ export default function OrdersPage() {
   const [showTriggerModal, setShowTriggerModal] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [triggering, setTriggering] = useState(false);
+  const [fraudSummaries, setFraudSummaries] = useState<Record<string, any>>({});
+  const [checkingFraudId, setCheckingFraudId] = useState<string | null>(null);
+  const [fraudReportLoading, setFraudReportLoading] = useState(false);
+  const [fraudReportOpen, setFraudReportOpen] = useState(false);
+  const [fraudReportData, setFraudReportData] = useState<any>(null);
+  const [fraudDecisionFilter, setFraudDecisionFilter] = useState('all');
+  const [checkingBatchFraud, setCheckingBatchFraud] = useState(false);
+
+  const normalizeFraudSummary = (summary?: any) => {
+    if (!summary) return null;
+
+    const finalFraudScore =
+      summary.final_fraud_score ?? summary.finalFraudScore ?? summary.score ?? null;
+    const fraudDecision =
+      summary.fraud_decision ?? summary.fraudDecision ?? summary.decision ?? null;
+    const riskLevel =
+      summary.risk_level ?? summary.riskLevel ?? summary.risk ?? null;
+    const checkedAt =
+      summary.checked_at ?? summary.checkedAt ?? summary.createdAt ?? null;
+
+    if (finalFraudScore === null && !fraudDecision && !riskLevel) {
+      return null;
+    }
+
+    return {
+      final_fraud_score: finalFraudScore,
+      fraud_decision: fraudDecision,
+      risk_level: riskLevel,
+      checked_at: checkedAt,
+    };
+  };
+
+  const getOrderFraudSummary = (order: any) => {
+    const stateSummary = normalizeFraudSummary(fraudSummaries[order.id]);
+    if (stateSummary) return stateSummary;
+
+    const directSummary = normalizeFraudSummary(order.fraudSummary);
+    if (directSummary) return directSummary;
+
+    const latestAssessment = Array.isArray(order.fraudAssessments)
+      ? order.fraudAssessments[0]
+      : null;
+    return normalizeFraudSummary(latestAssessment);
+  };
 
   // Debounced search effect
   useEffect(() => {
@@ -42,7 +86,7 @@ export default function OrdersPage() {
   // Reset to page 1 when filter or items per page changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [statusFilter, itemsPerPage]);
+  }, [statusFilter, itemsPerPage, fraudDecisionFilter]);
 
   // Load automations once on mount
   useEffect(() => {
@@ -91,6 +135,18 @@ export default function OrdersPage() {
 
       setOrders(nextOrders);
       setPaginationMeta(nextMeta);
+      const persistedSummaries = nextOrders.reduce((acc: Record<string, any>, order: any) => {
+        const normalized =
+          normalizeFraudSummary(order.fraudSummary) ||
+          normalizeFraudSummary(Array.isArray(order.fraudAssessments) ? order.fraudAssessments[0] : null);
+        if (normalized) {
+          acc[order.id] = normalized;
+        }
+        return acc;
+      }, {});
+
+      setFraudSummaries(persistedSummaries);
+      await loadFraudSummaries(nextOrders, persistedSummaries);
       
       console.log('✅ Loaded', nextOrders.length, 'orders, total:', nextMeta?.total || 0);
     } catch (error) {
@@ -98,6 +154,26 @@ export default function OrdersPage() {
       toast.error('Unable to load orders. Please refresh and try again.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadFraudSummaries = async (orderList: any[], existingSummaries: Record<string, any>) => {
+    try {
+      const orderIds = orderList
+        .map((order) => order.id)
+        .filter((orderId) => Boolean(orderId) && !existingSummaries[orderId]);
+
+      if (!orderIds.length) {
+        return;
+      }
+
+      const response = await fraudApi.getSummaries(orderIds);
+      setFraudSummaries((prev) => ({
+        ...prev,
+        ...(response.data?.summaries || {}),
+      }));
+    } catch (error) {
+      console.error('Failed to load fraud summaries', error);
     }
   };
 
@@ -215,6 +291,129 @@ export default function OrdersPage() {
     setPendingExportFormat(format);
   };
 
+  const filteredOrders = orders.filter((order) => {
+    if (fraudDecisionFilter === 'all') {
+      return true;
+    }
+
+    const decision = getOrderFraudSummary(order)?.fraud_decision;
+    if (fraudDecisionFilter === 'UNCHECKED') {
+      return !decision;
+    }
+
+    return decision === fraudDecisionFilter;
+  });
+
+  const uncheckedVisibleOrderIds = filteredOrders
+    .filter((order) => !getOrderFraudSummary(order)?.fraud_decision)
+    .map((order) => order.id);
+
+  const getFraudDecisionColor = (decision?: string) => {
+    if (decision === 'BLOCK') return 'bg-red-100 text-red-700';
+    if (decision === 'VERIFY') return 'bg-amber-100 text-amber-700';
+    if (decision === 'APPROVE') return 'bg-green-100 text-green-700';
+    return 'bg-slate-100 text-slate-600';
+  };
+
+  const handleCheckFraud = async (orderId: string) => {
+    try {
+      setCheckingFraudId(orderId);
+      const response = await fraudApi.checkOrder({
+        orderId,
+        forceRecompute: true,
+        includeGeo: false,
+      });
+
+      const result = response.data;
+      setFraudSummaries((prev) => ({
+        ...prev,
+        [orderId]: {
+          final_fraud_score: result.final_fraud_score,
+          fraud_decision: result.fraud_decision,
+          risk_level: result.risk_level,
+          checked_at: result.checked_at,
+        },
+      }));
+
+      toast.success(`Fraud score: ${result.final_fraud_score} (${result.fraud_decision})`);
+    } catch (error: any) {
+      console.error('Failed to check fraud', error);
+      toast.error(error.response?.data?.message || 'Failed to run fraud check');
+    } finally {
+      setCheckingFraudId(null);
+    }
+  };
+
+  const handleViewFraudReport = async (orderId: string) => {
+    try {
+      setFraudReportLoading(true);
+      setFraudReportOpen(true);
+      const response = await fraudApi.getReport(orderId);
+      setFraudReportData(response.data);
+
+      const latest = response.data?.latest;
+      if (latest) {
+        setFraudSummaries((prev) => ({
+          ...prev,
+          [orderId]: {
+            final_fraud_score: latest.final_fraud_score,
+            fraud_decision: latest.fraud_decision,
+            risk_level: latest.risk_level,
+            checked_at: latest.checked_at,
+          },
+        }));
+      }
+    } catch (error: any) {
+      console.error('Failed to fetch fraud report', error);
+      setFraudReportData(null);
+      toast.error(error.response?.data?.message || 'No fraud report found for this order');
+    } finally {
+      setFraudReportLoading(false);
+    }
+  };
+
+  const handleCheckVisibleUncheckedFraud = async () => {
+    if (!uncheckedVisibleOrderIds.length) {
+      toast('No unchecked orders in current view');
+      return;
+    }
+
+    try {
+      setCheckingBatchFraud(true);
+      const response = await fraudApi.checkBatch({
+        orderIds: uncheckedVisibleOrderIds,
+        forceRecompute: true,
+        includeGeo: false,
+      });
+
+      const payload = response.data || {};
+      const nextSummaries: Record<string, any> = {};
+
+      (payload.results || []).forEach((item: any) => {
+        if (item.ok && item.result) {
+          nextSummaries[item.orderId] = {
+            final_fraud_score: item.result.final_fraud_score,
+            fraud_decision: item.result.fraud_decision,
+            risk_level: item.result.risk_level,
+            checked_at: item.result.checked_at,
+          };
+        }
+      });
+
+      setFraudSummaries((prev) => ({
+        ...prev,
+        ...nextSummaries,
+      }));
+
+      toast.success(`Fraud checks completed: ${payload.success || 0} success, ${payload.failed || 0} failed`);
+    } catch (error: any) {
+      console.error('Batch fraud check failed', error);
+      toast.error(error.response?.data?.message || 'Failed to run batch fraud check');
+    } finally {
+      setCheckingBatchFraud(false);
+    }
+  };
+
   const confirmExportOrders = async () => {
     if (!pendingExportFormat) return;
     await handleExportOrders(pendingExportFormat);
@@ -320,6 +519,39 @@ export default function OrdersPage() {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-semibold uppercase text-slate-500">Fraud:</span>
+        {[
+          { value: 'all', label: 'All' },
+          { value: 'APPROVE', label: 'Approve' },
+          { value: 'VERIFY', label: 'Verify' },
+          { value: 'BLOCK', label: 'Block' },
+          { value: 'UNCHECKED', label: 'Unchecked' },
+        ].map((item) => (
+          <button
+            key={item.value}
+            onClick={() => setFraudDecisionFilter(item.value)}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+              fraudDecisionFilter === item.value
+                ? 'bg-slate-900 text-white'
+                : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            {item.label}
+          </button>
+        ))}
+        <button
+          onClick={handleCheckVisibleUncheckedFraud}
+          disabled={checkingBatchFraud || uncheckedVisibleOrderIds.length === 0}
+          className="ml-2 px-3 py-1.5 rounded-md text-xs font-medium border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          title={uncheckedVisibleOrderIds.length > 0 ? 'Run fraud checks for visible unchecked orders' : 'No unchecked orders in current filter'}
+        >
+          {checkingBatchFraud
+            ? 'Checking...'
+            : `Check Visible Unchecked (${uncheckedVisibleOrderIds.length})`}
+        </button>
+      </div>
+
       {/* Summary Cards */}
       {statistics && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
@@ -387,7 +619,7 @@ export default function OrdersPage() {
           <div className="animate-spin rounded-full h-10 w-10 sm:h-12 sm:w-12 border-b-2 border-primary-500 mx-auto"></div>
           <p className="mt-4 text-sm sm:text-base text-slate-600">Loading orders...</p>
         </div>
-      ) : orders.length === 0 ? (
+      ) : filteredOrders.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 sm:p-12 text-center">
           <svg className="w-12 h-12 sm:w-16 sm:h-16 text-slate-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
@@ -399,8 +631,21 @@ export default function OrdersPage() {
         <>
           {/* Mobile Card View */}
           <div className="lg:hidden space-y-3">
-            {orders.map((order) => (
+            {filteredOrders.map((order) => {
+              const fraudSummary = getOrderFraudSummary(order);
+
+              return (
               <div key={order.id} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 hover:shadow-md transition-shadow">
+                {fraudSummary && (
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className={`px-2 py-1 rounded text-xs font-semibold ${getFraudDecisionColor(fraudSummary.fraud_decision)}`}>
+                      {fraudSummary.fraud_decision}
+                    </span>
+                    <span className="text-xs text-slate-600">
+                      Score: <span className="font-semibold text-slate-900">{fraudSummary.final_fraud_score}</span>
+                    </span>
+                  </div>
+                )}
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2">
@@ -484,27 +729,40 @@ export default function OrdersPage() {
                     </div>
                   }
                 >
-                  <button
-                    onClick={() => {
-                      setSelectedOrder(order);
-                      setShowTriggerModal(true);
-                    }}
-                    disabled={!canSendConfirmation(order)}
-                    className={`mt-3 w-full inline-flex items-center justify-center px-3 py-2 text-sm rounded-lg transition-colors ${
-                      canSendConfirmation(order)
-                        ? 'bg-primary-600 text-white hover:bg-primary-700'
-                        : 'bg-slate-200 text-slate-500 cursor-not-allowed'
-                    }`}
-                    title={canSendConfirmation(order) ? (order.confirmationSentAt ? 'Resend confirmation' : 'Send confirmation') : getDisabledReason(order)}
-                  >
-                    <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
-                    {order.confirmationSentAt ? 'Resend Confirmation' : 'Send Confirmation'}
-                  </button>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => {
+                        setSelectedOrder(order);
+                        setShowTriggerModal(true);
+                      }}
+                      disabled={!canSendConfirmation(order)}
+                      className={`inline-flex items-center justify-center px-3 py-2 text-sm rounded-lg transition-colors ${
+                        canSendConfirmation(order)
+                          ? 'bg-primary-600 text-white hover:bg-primary-700'
+                          : 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                      }`}
+                      title={canSendConfirmation(order) ? (order.confirmationSentAt ? 'Resend confirmation' : 'Send confirmation') : getDisabledReason(order)}
+                    >
+                      {order.confirmationSentAt ? 'Resend' : 'Confirm'}
+                    </button>
+                    <button
+                      onClick={() => handleCheckFraud(order.id)}
+                      disabled={checkingFraudId === order.id}
+                      className="inline-flex items-center justify-center px-3 py-2 text-sm rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {checkingFraudId === order.id ? 'Checking...' : 'Check Fraud'}
+                    </button>
+                  </div>
                 </PermissionGate>
+                <button
+                  onClick={() => handleViewFraudReport(order.id)}
+                  className="mt-2 w-full inline-flex items-center justify-center px-3 py-2 text-sm rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+                >
+                  View Fraud Report
+                </button>
               </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Pagination (Mobile) */}
@@ -583,6 +841,9 @@ export default function OrdersPage() {
                     Status
                   </th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    Fraud
+                  </th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     Confirmation
                   </th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
@@ -594,7 +855,10 @@ export default function OrdersPage() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-slate-100">
-                {orders.map((order) => (
+                {filteredOrders.map((order) => {
+                  const fraudSummary = getOrderFraudSummary(order);
+
+                  return (
                   <tr key={order.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-6 py-4 whitespace-nowrap">
                       {getShopifyOrderUrl(order) ? (
@@ -649,6 +913,18 @@ export default function OrdersPage() {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      {fraudSummary ? (
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-1 rounded text-xs font-semibold ${getFraudDecisionColor(fraudSummary.fraud_decision)}`}>
+                            {fraudSummary.fraud_decision}
+                          </span>
+                          <span className="text-slate-700 font-medium">{fraudSummary.final_fraud_score}</span>
+                        </div>
+                      ) : (
+                        <span className="text-slate-400">Not checked</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
                       {order.confirmationSentAt ? (
                         <div className="flex items-center text-green-600">
                           <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -675,28 +951,41 @@ export default function OrdersPage() {
                           </span>
                         }
                       >
-                        <button
-                          onClick={() => {
-                            setSelectedOrder(order);
-                            setShowTriggerModal(true);
-                          }}
-                          disabled={!canSendConfirmation(order)}
-                          className={`inline-flex items-center px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                            canSendConfirmation(order)
-                              ? 'bg-primary-600 text-white hover:bg-primary-700'
-                              : 'bg-slate-200 text-slate-500 cursor-not-allowed'
-                          }`}
-                          title={canSendConfirmation(order) ? (order.confirmationSentAt ? 'Resend confirmation' : 'Send confirmation') : getDisabledReason(order)}
-                        >
-                          <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                          </svg>
-                          {order.confirmationSentAt ? 'Resend' : 'Send'}
-                        </button>
+                        <div className="inline-flex items-center gap-2">
+                          <button
+                            onClick={() => {
+                              setSelectedOrder(order);
+                              setShowTriggerModal(true);
+                            }}
+                            disabled={!canSendConfirmation(order)}
+                            className={`inline-flex items-center px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                              canSendConfirmation(order)
+                                ? 'bg-primary-600 text-white hover:bg-primary-700'
+                                : 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                            }`}
+                            title={canSendConfirmation(order) ? (order.confirmationSentAt ? 'Resend confirmation' : 'Send confirmation') : getDisabledReason(order)}
+                          >
+                            {order.confirmationSentAt ? 'Resend' : 'Confirm'}
+                          </button>
+                          <button
+                            onClick={() => handleCheckFraud(order.id)}
+                            disabled={checkingFraudId === order.id}
+                            className="inline-flex items-center px-3 py-1.5 text-sm rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {checkingFraudId === order.id ? 'Checking...' : 'Check Fraud'}
+                          </button>
+                          <button
+                            onClick={() => handleViewFraudReport(order.id)}
+                            className="inline-flex items-center px-3 py-1.5 text-sm rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+                          >
+                            Report
+                          </button>
+                        </div>
                       </PermissionGate>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -836,6 +1125,123 @@ export default function OrdersPage() {
             </div>
           )}
         </>
+      )}
+
+      {fraudReportOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-2xl rounded-xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+              <h3 className="text-lg font-semibold text-slate-900">Fraud Report</h3>
+              <button
+                onClick={() => {
+                  setFraudReportOpen(false);
+                  setFraudReportData(null);
+                }}
+                className="text-slate-500 hover:text-slate-700"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="max-h-[70vh] overflow-y-auto px-6 py-5">
+              {fraudReportLoading ? (
+                <div className="py-8 text-center text-slate-600">Loading fraud report...</div>
+              ) : fraudReportData?.latest ? (
+                <div className="space-y-4">
+                  <div className={`rounded-xl border p-4 ${
+                    fraudReportData.latest.fraud_decision === 'BLOCK'
+                      ? 'border-red-200 bg-red-50'
+                      : fraudReportData.latest.fraud_decision === 'VERIFY'
+                        ? 'border-amber-200 bg-amber-50'
+                        : 'border-green-200 bg-green-50'
+                  }`}>
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Decision</p>
+                        <div className="mt-1 flex items-center gap-2">
+                          <span className={`px-2 py-1 rounded text-xs font-semibold ${getFraudDecisionColor(fraudReportData.latest.fraud_decision)}`}>
+                            {fraudReportData.latest.fraud_decision}
+                          </span>
+                          <span className="text-sm font-medium text-slate-800">
+                            {fraudReportData.latest.fraud_decision === 'BLOCK'
+                              ? 'Hold fulfillment and require manual verification.'
+                              : fraudReportData.latest.fraud_decision === 'VERIFY'
+                                ? 'Request OTP or confirm details before dispatch.'
+                                : 'Low risk profile detected. Safe to continue.'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Checked At</p>
+                        <p className="mt-1 text-sm font-medium text-slate-900">
+                          {new Date(fraudReportData.latest.checked_at).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 p-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold text-slate-900">Risk Score</p>
+                      <p className="text-2xl font-bold text-slate-900">{fraudReportData.latest.final_fraud_score}</p>
+                    </div>
+                    <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+                      <div
+                        className={`h-full rounded-full ${
+                          fraudReportData.latest.final_fraud_score >= 80
+                            ? 'bg-red-500'
+                            : fraudReportData.latest.final_fraud_score >= 50
+                              ? 'bg-amber-500'
+                              : 'bg-green-500'
+                        }`}
+                        style={{ width: `${Math.min(100, Math.max(0, fraudReportData.latest.final_fraud_score))}%` }}
+                      />
+                    </div>
+                    <p className="mt-2 text-xs text-slate-500">
+                      Risk level: <span className="font-semibold text-slate-700">{fraudReportData.latest.risk_level}</span>
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg border border-slate-200 p-3">
+                    <p className="mb-2 text-sm font-semibold text-slate-900">Explanation</p>
+                    {(fraudReportData.latest.explanation || []).length > 0 ? (
+                      <ul className="list-disc pl-5 text-sm text-slate-700 space-y-1">
+                        {(fraudReportData.latest.explanation || []).map((reason: string, idx: number) => (
+                          <li key={`${reason}-${idx}`}>{reason}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-slate-500">No explanation available.</p>
+                    )}
+                  </div>
+
+                  <div className="rounded-lg border border-slate-200 p-3">
+                    <p className="mb-2 text-sm font-semibold text-slate-900">Signals</p>
+                    {(fraudReportData.signals || []).length > 0 ? (
+                      <div className="space-y-2">
+                        {(fraudReportData.signals || []).map((signal: any) => (
+                          <div key={signal.id} className="rounded-lg border border-slate-200 bg-white p-3 text-sm">
+                            <div className="flex items-center justify-between">
+                              <span className="font-medium text-slate-800">{signal.detectorName} / {signal.signalType}</span>
+                              <span className="rounded bg-slate-100 px-2 py-0.5 text-slate-700">+{signal.scoreContribution}</span>
+                            </div>
+                            <p className="mt-1 text-slate-700">{signal.reason}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-slate-500">No signals recorded.</p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="py-8 text-center text-slate-600">No fraud report available for this order yet.</div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Manual Trigger Modal */}

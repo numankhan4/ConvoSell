@@ -20,6 +20,7 @@ import { JobsModule } from './jobs/jobs.module';
 import { SettingsModule } from './settings/settings.module';
 import { TemplatesModule } from './templates/templates.module';
 import { TestDataModule } from './test-data/test-data.module';
+import { FraudModule } from './fraud/fraud.module';
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { TestDataModule } from './test-data/test-data.module';
     SettingsModule,
     TemplatesModule,
     TestDataModule,
+    FraudModule,
   ],
 })
 export class AppModule {}
