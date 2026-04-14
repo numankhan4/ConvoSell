@@ -1,4 +1,4 @@
-export type DetectorName = 'duplicate' | 'phone' | 'cod' | 'history' | 'geo';
+export type DetectorName = 'duplicate' | 'phone' | 'cod' | 'history' | 'geo' | 'verification';
 
 export interface DetectorSignal {
   detectorName: DetectorName;
@@ -24,6 +24,7 @@ export interface FraudComputationResult {
   codRiskScore: number;
   trustScore: number;
   geoRiskScore: number;
+  verificationRiskScore: number;
   finalFraudScore: number;
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
   fraudDecision: 'APPROVE' | 'VERIFY' | 'BLOCK';

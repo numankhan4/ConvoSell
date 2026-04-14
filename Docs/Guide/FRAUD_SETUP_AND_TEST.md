@@ -67,6 +67,13 @@ Invoke-RestMethod -Method Post -Uri 'http://localhost:3000/api/fraud/internal/ch
 Expected result:
 - JSON includes final_fraud_score, fraud_decision, explanation, detector_breakdown, latency_ms.
 
+Verification expected in detector_breakdown:
+- verification section appears with metadata such as:
+  - verification_outcome
+  - awaitingCustomerReply
+  - minutesSinceConfirmation
+  - inboundReplyAfterConfirmation
+
 ## 5) Smoke Test B: Queue/Worker Path
 
 Create an outbox event and let existing jobs + worker process it.
@@ -103,6 +110,36 @@ Expected result:
 - score and decision populated
 - signals count >= 0
 
+## 6.1) Verify Summaries/Report Auto-Backfill
+
+If an order has no existing fraud assessment yet, summaries and report endpoints now trigger a backfill fraud check.
+
+Run summaries endpoint for a recent order list:
+
+```powershell
+Invoke-RestMethod -Method Get -Uri 'http://localhost:3000/api/fraud/summaries?orderIds=<order-id-1>,<order-id-2>' -Headers @{ Authorization = 'Bearer <jwt>' } | ConvertTo-Json -Depth 10
+```
+
+Expected result:
+- summaries contains final_fraud_score and fraud_decision for orders that previously had no assessment.
+
+Run report endpoint:
+
+```powershell
+Invoke-RestMethod -Method Get -Uri 'http://localhost:3000/api/fraud/report/<order-id>' -Headers @{ Authorization = 'Bearer <jwt>' } | ConvertTo-Json -Depth 10
+```
+
+Expected result:
+- report is returned without "No fraud report found" for valid order/workspace order IDs.
+
+## 6.2) Verify Duplicate Sensitivity (Second Order in 24h)
+
+Create two orders with the same WhatsApp phone within 24h and run fraud check on the second order.
+
+Expected result:
+- duplicate detector includes signalType = phone_reuse_24h or phone_velocity_24h.
+- second same-phone order is no longer treated as fully clean for duplicate velocity.
+
 ## 7) Troubleshooting
 
 - 403 Invalid internal worker key:
@@ -135,6 +172,7 @@ Expected behavior:
 - Checking fraud updates badge and score immediately.
 - Report modal shows explanation and detector signals.
 - Batch action "Check Visible Unchecked" runs fraud checks for currently visible unchecked rows.
+- Pending WhatsApp verification cases should trend toward VERIFY with follow-up-oriented recommendation.
 
 Batch endpoint payload example:
 

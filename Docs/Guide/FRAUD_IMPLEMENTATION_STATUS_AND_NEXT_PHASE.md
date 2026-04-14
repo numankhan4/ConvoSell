@@ -27,6 +27,12 @@ Implemented detectors include:
 - COD/order value and customer history risk
 - Trust/history scoring
 - Optional geo mismatch risk
+- WhatsApp verification behavior risk (confirmation status, no-reply timeout windows, follow-up saturation)
+
+Recent reliability and quality improvements:
+- Duplicate detector now flags second order reuse in 24h (not only third+).
+- Reports and summaries auto-backfill missing fraud assessments for unchecked orders.
+- Fraud recommendation can explicitly suggest WhatsApp follow-up when verification is still pending.
 
 Current decision outcomes:
 - APPROVE
@@ -104,6 +110,7 @@ Verified during implementation:
 - Frontend build passes
 - Queue path and direct path have been exercised
 - Fraud results are persisted and can be reported
+- Backend build passes after verification-detector enhancements
 
 ## 3) Current Limitations / Known Gaps
 
@@ -115,6 +122,12 @@ Areas still to harden for enterprise production:
 - More advanced anomaly models beyond deterministic rule heuristics
 - Performance optimization for very high order volume
 - Expanded test coverage (integration + load + regression)
+
+Notes on WhatsApp verification coverage now included in fraud scoring:
+- verificationOutcome = confirmed, cancelled, fake_suspected
+- Pending response windows based on workspace verification settings
+- Inbound reply presence after confirmation prompt
+- Follow-up exhaustion patterns and slow confirmation behavior
 
 ## 4) Next Phase Plan (Phase 2)
 

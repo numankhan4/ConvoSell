@@ -94,6 +94,7 @@ export class FraudService {
     const codRisk = await this.computeCodRiskSignals(workspaceId, order.id, order.contactId, order.totalAmount, order.paymentMethod);
     const history = await this.computeHistorySignals(workspaceId, order.contactId);
     const geo = await this.computeGeoSignals(dto.includeGeo !== false, dto.ipAddress, order.shippingAddress);
+    const verification = await this.computeVerificationSignals(workspaceId, order, now);
 
     const weighted = {
       duplicate: Math.min(config.maxSingleContribution, duplicate.score * config.duplicateWeight),
@@ -101,11 +102,14 @@ export class FraudService {
       cod: Math.min(config.maxSingleContribution, codRisk.score * config.codWeight),
       geo: Math.min(config.maxSingleContribution, geo.score * config.geoWeight),
       trust: Math.min(config.maxSingleContribution, (100 - history.trustScore) * config.trustWeight),
+      verification: Math.min(config.maxSingleContribution, verification.score * 0.2),
     };
 
-    const finalFraudScore = this.clamp(Math.round(weighted.duplicate + weighted.phone + weighted.cod + weighted.geo + weighted.trust));
+    const finalFraudScore = this.clamp(
+      Math.round(weighted.duplicate + weighted.phone + weighted.cod + weighted.geo + weighted.trust + weighted.verification),
+    );
 
-    const detectorScores = [duplicate.score, phoneRisk.score, codRisk.score, geo.score, 100 - history.trustScore];
+    const detectorScores = [duplicate.score, phoneRisk.score, codRisk.score, geo.score, 100 - history.trustScore, verification.score];
     const highSignalCount = detectorScores.filter((s) => s >= config.highSignalThreshold).length;
 
     let fraudDecision: 'APPROVE' | 'VERIFY' | 'BLOCK' = 'APPROVE';
@@ -127,6 +131,7 @@ export class FraudService {
       ...codRisk.reasons,
       ...history.reasons,
       ...geo.reasons,
+      ...verification.reasons,
     ]);
 
     const signals: DetectorSignal[] = [
@@ -135,13 +140,14 @@ export class FraudService {
       ...codRisk.signals,
       ...history.signals,
       ...geo.signals,
+      ...verification.signals,
     ];
 
     const processingTimeMs = Date.now() - start;
     const recommendedAction = fraudDecision === 'BLOCK'
       ? 'hold_and_manual_review'
       : fraudDecision === 'VERIFY'
-      ? 'send_whatsapp_confirmation'
+      ? (verification.metadata.awaitingCustomerReply ? 'send_whatsapp_confirmation_followup' : 'send_whatsapp_confirmation')
       : 'normal_fulfillment';
 
     const result: FraudComputationResult = {
@@ -150,6 +156,7 @@ export class FraudService {
       codRiskScore: codRisk.score,
       trustScore: history.trustScore,
       geoRiskScore: geo.score,
+      verificationRiskScore: verification.score,
       finalFraudScore,
       riskLevel,
       fraudDecision,
@@ -161,6 +168,7 @@ export class FraudService {
         cod: codRisk.metadata,
         history: history.metadata,
         geo: geo.metadata,
+        verification: verification.metadata,
         weighted,
       },
       signals,
@@ -228,6 +236,8 @@ export class FraudService {
   }
 
   async getOrderReport(workspaceId: string, orderId: string) {
+    await this.ensureAssessmentsForOrderIds(workspaceId, [orderId]);
+
     const assessments = await this.prisma.fraudAssessment.findMany({
       where: { workspaceId, orderId },
       include: {
@@ -261,6 +271,8 @@ export class FraudService {
     if (!orderIds.length) {
       return { summaries: {} };
     }
+
+    await this.ensureAssessmentsForOrderIds(workspaceId, orderIds);
 
     const assessments = await this.prisma.fraudAssessment.findMany({
       where: {
@@ -415,7 +427,7 @@ export class FraudService {
       },
     });
 
-    const detectors = ['duplicate', 'phone', 'cod', 'history', 'geo'];
+    const detectors = ['duplicate', 'phone', 'cod', 'history', 'geo', 'verification'];
     const counters: Record<string, { tp: number; fp: number; fn: number; flagged: number }> = {};
     detectors.forEach((d) => {
       counters[d] = { tp: 0, fp: 0, fn: 0, flagged: 0 };
@@ -479,6 +491,47 @@ export class FraudService {
     });
   }
 
+  private async ensureAssessmentsForOrderIds(workspaceId: string, orderIds: string[]) {
+    const uniqueOrderIds = Array.from(new Set((orderIds || []).map((id) => id?.trim()).filter(Boolean)));
+    if (!uniqueOrderIds.length) {
+      return;
+    }
+
+    const existing = await this.prisma.fraudAssessment.findMany({
+      where: {
+        workspaceId,
+        orderId: { in: uniqueOrderIds },
+      },
+      select: { orderId: true },
+    });
+
+    const existingOrderIds = new Set(existing.map((row) => row.orderId));
+    const missingOrderIds = uniqueOrderIds.filter((id) => !existingOrderIds.has(id));
+    if (!missingOrderIds.length) {
+      return;
+    }
+
+    const concurrency = 3;
+    for (let i = 0; i < missingOrderIds.length; i += concurrency) {
+      const chunk = missingOrderIds.slice(i, i + concurrency);
+      await Promise.all(
+        chunk.map(async (orderId) => {
+          try {
+            await this.checkOrder(workspaceId, {
+              orderId,
+              includeGeo: false,
+              forceRecompute: true,
+            });
+          } catch (error) {
+            this.logger.warn(
+              `Could not backfill fraud assessment for order ${orderId}: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        }),
+      );
+    }
+  }
+
   private async computeDuplicateSignals(
     workspaceId: string,
     orderId: string,
@@ -525,6 +578,18 @@ export class FraudService {
           severity: 'high',
           scoreContribution: 35,
           reason: `Same phone placed ${duplicateCount24h} orders in 24h`,
+          metadata: { duplicateCount24h, duplicateCount7d },
+        });
+      } else if (duplicateCount24h >= 1) {
+        duplicateType = 'phone';
+        score += 20;
+        reasons.push(`Phone reused within 24h (${duplicateCount24h} prior order)`);
+        signals.push({
+          detectorName: 'duplicate',
+          signalType: 'phone_reuse_24h',
+          severity: 'medium',
+          scoreContribution: 20,
+          reason: `Same phone already placed ${duplicateCount24h} order in the last 24h`,
           metadata: { duplicateCount24h, duplicateCount7d },
         });
       }
@@ -593,6 +658,183 @@ export class FraudService {
         duplicate_type: duplicateType,
         duplicate_count_24h: duplicateCount24h,
         duplicate_count_7d: duplicateCount7d,
+      },
+    };
+  }
+
+  private async computeVerificationSignals(workspaceId: string, order: any, now: Date) {
+    let score = 0;
+    const reasons: string[] = [];
+    const signals: DetectorSignal[] = [];
+
+    const workspace = await this.prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: {
+        verificationFirstFollowupMinutes: true,
+        verificationFinalTimeoutMinutes: true,
+        verificationMaxFollowups: true,
+      },
+    });
+
+    const firstFollowupMinutes = workspace?.verificationFirstFollowupMinutes ?? 120;
+    const finalTimeoutMinutes = workspace?.verificationFinalTimeoutMinutes ?? 1440;
+    const maxFollowups = workspace?.verificationMaxFollowups ?? 2;
+
+    const confirmationSentAt = order.confirmationSentAt ? new Date(order.confirmationSentAt) : null;
+    const minutesSinceConfirmation = confirmationSentAt
+      ? Math.floor((now.getTime() - confirmationSentAt.getTime()) / 60000)
+      : null;
+
+    let inboundReplyAfterConfirmation = false;
+    if (confirmationSentAt) {
+      const inboundMessage = await this.prisma.message.findFirst({
+        where: {
+          workspaceId,
+          direction: 'inbound',
+          createdAt: { gte: confirmationSentAt },
+          conversation: {
+            contactId: order.contactId,
+          },
+        },
+        select: { id: true },
+      });
+
+      inboundReplyAfterConfirmation = Boolean(inboundMessage);
+    }
+
+    const verificationOutcome = (order.verificationOutcome || '').toLowerCase();
+    if (verificationOutcome === 'fake_suspected') {
+      score += 70;
+      reasons.push('Order marked as fake_suspected in WhatsApp verification flow');
+      signals.push({
+        detectorName: 'verification',
+        signalType: 'verification_marked_fake_suspected',
+        severity: 'high',
+        scoreContribution: 70,
+        reason: 'Verification workflow explicitly flagged this order as fake-suspected',
+      });
+    }
+
+    if (verificationOutcome === 'cancelled') {
+      score += 30;
+      reasons.push('Customer cancelled during WhatsApp verification');
+      signals.push({
+        detectorName: 'verification',
+        signalType: 'verification_cancelled',
+        severity: 'high',
+        scoreContribution: 30,
+        reason: 'Order was cancelled through WhatsApp verification',
+      });
+    }
+
+    const awaitingCustomerReply =
+      order.status === 'pending' &&
+      (!verificationOutcome || verificationOutcome === 'pending_response') &&
+      !order.verificationFinalizedAt;
+
+    if (awaitingCustomerReply) {
+      if (!confirmationSentAt) {
+        score += 20;
+        reasons.push('WhatsApp verification message not sent yet for pending order');
+        signals.push({
+          detectorName: 'verification',
+          signalType: 'verification_not_initiated',
+          severity: 'medium',
+          scoreContribution: 20,
+          reason: 'Order is pending but no verification dispatch timestamp exists',
+        });
+      } else if (minutesSinceConfirmation !== null) {
+        if (minutesSinceConfirmation >= finalTimeoutMinutes) {
+          score += 45;
+          reasons.push('No final verification response after timeout window');
+          signals.push({
+            detectorName: 'verification',
+            signalType: 'verification_timeout_no_response',
+            severity: 'high',
+            scoreContribution: 45,
+            reason: 'Customer has not confirmed/cancelled within workspace final timeout window',
+            metadata: {
+              minutesSinceConfirmation,
+              finalTimeoutMinutes,
+            },
+          });
+        } else if (minutesSinceConfirmation >= firstFollowupMinutes) {
+          score += 15;
+          reasons.push('Verification still pending beyond first follow-up window');
+          signals.push({
+            detectorName: 'verification',
+            signalType: 'verification_pending_followup_window',
+            severity: 'medium',
+            scoreContribution: 15,
+            reason: 'Order is still pending after first follow-up interval',
+            metadata: {
+              minutesSinceConfirmation,
+              firstFollowupMinutes,
+            },
+          });
+        }
+      }
+
+      const followupCount = order.followupCount || 0;
+      if (followupCount >= Math.max(1, maxFollowups)) {
+        score += 15;
+        reasons.push('Multiple WhatsApp follow-ups sent without final resolution');
+        signals.push({
+          detectorName: 'verification',
+          signalType: 'verification_multiple_followups_no_resolution',
+          severity: 'medium',
+          scoreContribution: 15,
+          reason: 'Order required repeated follow-ups and remains unresolved',
+          metadata: {
+            followupCount,
+            maxFollowups,
+          },
+        });
+      }
+
+      if (confirmationSentAt && !inboundReplyAfterConfirmation && (minutesSinceConfirmation ?? 0) >= firstFollowupMinutes) {
+        score += 20;
+        reasons.push('Customer did not reply to WhatsApp verification prompt');
+        signals.push({
+          detectorName: 'verification',
+          signalType: 'verification_no_reply_after_prompt',
+          severity: 'high',
+          scoreContribution: 20,
+          reason: 'No inbound WhatsApp reply detected after verification prompt',
+          metadata: {
+            minutesSinceConfirmation,
+          },
+        });
+      }
+    }
+
+    if (verificationOutcome === 'confirmed' && typeof order.responseTimeMinutes === 'number' && order.responseTimeMinutes > 720) {
+      score += 8;
+      reasons.push('Customer took unusually long to confirm the order');
+      signals.push({
+        detectorName: 'verification',
+        signalType: 'verification_slow_confirmation',
+        severity: 'low',
+        scoreContribution: 8,
+        reason: 'Very slow confirmation can correlate with uncertain purchase intent',
+        metadata: {
+          responseTimeMinutes: order.responseTimeMinutes,
+        },
+      });
+    }
+
+    return {
+      score: this.clamp(score),
+      reasons,
+      signals,
+      metadata: {
+        verification_score: this.clamp(score),
+        verification_outcome: order.verificationOutcome || null,
+        awaitingCustomerReply,
+        confirmationSentAt,
+        minutesSinceConfirmation,
+        followupCount: order.followupCount || 0,
+        inboundReplyAfterConfirmation,
       },
     };
   }
