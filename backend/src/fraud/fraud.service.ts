@@ -8,9 +8,26 @@ import { FraudCheckDto } from './dto/fraud-check.dto';
 import { FraudBatchCheckDto } from './dto/fraud-batch-check.dto';
 import { DetectorSignal, FraudComputationResult } from './fraud.types';
 
+export interface FraudLexiconConfig {
+  suspiciousKeywords: string[];
+  disposableDomains: string[];
+  fuzzyMatchDistance: number;
+}
+
 @Injectable()
 export class FraudService {
   private readonly logger = new Logger(FraudService.name);
+
+  private readonly defaultSuspiciousKeywords = ['test', 'fake', 'dummy', 'sample', 'asdf', 'qwerty'];
+  private readonly defaultDisposableDomains = [
+    'fake.com',
+    'example.com',
+    'test.com',
+    'mailinator.com',
+    'tempmail.com',
+    'yopmail.com',
+    '10minutemail.com',
+  ];
 
   constructor(
     private prisma: PrismaService,
@@ -45,6 +62,7 @@ export class FraudService {
     }
 
     const config = await this.getOrCreateRuleConfig(workspaceId);
+    const lexicon = await this.getWorkspaceFraudLexicon(workspaceId);
     const now = new Date();
     const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -63,7 +81,16 @@ export class FraudService {
       sevenDaysAgo,
     );
 
-    const phoneRisk = await this.computePhoneRiskSignals(workspaceId, phone, sevenDaysAgo);
+    const phoneRisk = await this.computePhoneRiskSignals(
+      workspaceId,
+      phone,
+      sevenDaysAgo,
+      order.contact?.email || '',
+      order.contact?.name || '',
+      order.shippingAddress,
+      order.contact?.whatsappPhone || '',
+      lexicon,
+    );
     const codRisk = await this.computeCodRiskSignals(workspaceId, order.id, order.contactId, order.totalAmount, order.paymentMethod);
     const history = await this.computeHistorySignals(workspaceId, order.contactId);
     const geo = await this.computeGeoSignals(dto.includeGeo !== false, dto.ipAddress, order.shippingAddress);
@@ -88,9 +115,7 @@ export class FraudService {
       fraudDecision = 'VERIFY';
     }
 
-    if (config.rolloutMode === 'shadow') {
-      fraudDecision = 'APPROVE';
-    }
+    // Keep computing real decisions even in shadow mode so risk is visible and measurable.
     if (config.rolloutMode === 'verify_only' && fraudDecision === 'BLOCK') {
       fraudDecision = 'VERIFY';
     }
@@ -322,6 +347,124 @@ export class FraudService {
     };
   }
 
+  async getFraudLexiconSettings(workspaceId: string) {
+    return this.getWorkspaceFraudLexicon(workspaceId);
+  }
+
+  async updateFraudLexiconSettings(
+    workspaceId: string,
+    dto: {
+      suspiciousKeywords?: string[];
+      disposableDomains?: string[];
+      fuzzyMatchDistance?: number;
+    },
+  ) {
+    await this.getOrCreateRuleConfig(workspaceId);
+
+    const current = await this.getWorkspaceFraudLexicon(workspaceId);
+    const suspiciousKeywords = this.normalizeKeywordList(dto.suspiciousKeywords ?? current.suspiciousKeywords);
+    const disposableDomains = this.normalizeDomainList(dto.disposableDomains ?? current.disposableDomains);
+    const fuzzyMatchDistance = this.normalizeFuzzyDistance(dto.fuzzyMatchDistance ?? current.fuzzyMatchDistance);
+
+    try {
+      await this.prisma.$executeRawUnsafe(
+        `UPDATE fraud_rule_configs
+         SET "suspiciousKeywords" = $2::jsonb,
+             "disposableDomains" = $3::jsonb,
+             "fuzzyMatchDistance" = $4,
+             "updatedAt" = NOW()
+         WHERE "workspaceId" = $1`,
+        workspaceId,
+        JSON.stringify(suspiciousKeywords),
+        JSON.stringify(disposableDomains),
+        fuzzyMatchDistance,
+      );
+    } catch (error) {
+      this.logger.warn(`Failed to update lexicon config columns, falling back to defaults: ${error instanceof Error ? error.message : String(error)}`);
+      throw new BadRequestException('Fraud lexicon columns are not available yet. Please run latest migrations.');
+    }
+
+    return {
+      suspiciousKeywords,
+      disposableDomains,
+      fuzzyMatchDistance,
+      updated: true,
+    };
+  }
+
+  async getDetectorPerformance(workspaceId: string, days = 30) {
+    const safeDays = Number.isFinite(days) ? Math.min(365, Math.max(1, Math.floor(days))) : 30;
+    const since = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000);
+
+    const assessments = await this.prisma.fraudAssessment.findMany({
+      where: {
+        workspaceId,
+        checkedAt: { gte: since },
+      },
+      include: {
+        signals: {
+          select: {
+            detectorName: true,
+          },
+        },
+        order: {
+          select: {
+            status: true,
+          },
+        },
+      },
+    });
+
+    const detectors = ['duplicate', 'phone', 'cod', 'history', 'geo'];
+    const counters: Record<string, { tp: number; fp: number; fn: number; flagged: number }> = {};
+    detectors.forEach((d) => {
+      counters[d] = { tp: 0, fp: 0, fn: 0, flagged: 0 };
+    });
+
+    assessments.forEach((assessment) => {
+      const actualFraud = ['fake', 'cancelled'].includes((assessment.order?.status || '').toLowerCase());
+      const fired = new Set((assessment.signals || []).map((s) => (s.detectorName || '').toLowerCase()));
+
+      detectors.forEach((detector) => {
+        const detectorFired = fired.has(detector);
+        if (detectorFired) {
+          counters[detector].flagged += 1;
+          if (actualFraud) {
+            counters[detector].tp += 1;
+          } else {
+            counters[detector].fp += 1;
+          }
+        } else if (actualFraud) {
+          counters[detector].fn += 1;
+        }
+      });
+    });
+
+    const metrics = detectors.map((detector) => {
+      const { tp, fp, fn, flagged } = counters[detector];
+      const precision = tp + fp > 0 ? tp / (tp + fp) : 0;
+      const recall = tp + fn > 0 ? tp / (tp + fn) : 0;
+
+      return {
+        detector,
+        sample_size: assessments.length,
+        flagged_count: flagged,
+        true_positive: tp,
+        false_positive: fp,
+        false_negative: fn,
+        precision,
+        recall,
+      };
+    });
+
+    return {
+      days: safeDays,
+      sample_size: assessments.length,
+      note: 'Precision/recall are computed using order status as proxy labels (fake/cancelled treated as fraud).',
+      metrics,
+    };
+  }
+
   private async getOrCreateRuleConfig(workspaceId: string) {
     const existing = await this.prisma.fraudRuleConfig.findUnique({
       where: { workspaceId },
@@ -454,7 +597,16 @@ export class FraudService {
     };
   }
 
-  private async computePhoneRiskSignals(workspaceId: string, phone: string, sevenDaysAgo: Date) {
+  private async computePhoneRiskSignals(
+    workspaceId: string,
+    phone: string,
+    sevenDaysAgo: Date,
+    email: string,
+    customerName: string,
+    shippingAddress: any,
+    contactRawPhone: string,
+    lexicon: FraudLexiconConfig,
+  ) {
     let score = 0;
     const reasons: string[] = [];
     const signals: DetectorSignal[] = [];
@@ -523,6 +675,117 @@ export class FraudService {
           metadata: { usageAcrossCustomers, ordersUsingPhone7d },
         });
       }
+    }
+
+    const emailLower = (email || '').trim().toLowerCase();
+    const suspiciousTokens = this.normalizeKeywordList(lexicon.suspiciousKeywords);
+    const disposableDomains = this.normalizeDomainList(lexicon.disposableDomains);
+    const fuzzyDistance = this.normalizeFuzzyDistance(lexicon.fuzzyMatchDistance);
+
+    if (emailLower) {
+      const [localPart, domainPart] = emailLower.split('@');
+
+      if (domainPart && disposableDomains.includes(domainPart)) {
+        score += 35;
+        reasons.push('Email domain looks disposable/test-oriented');
+        signals.push({
+          detectorName: 'phone',
+          signalType: 'disposable_or_test_email_domain',
+          severity: 'high',
+          scoreContribution: 35,
+          reason: 'Email domain is commonly used for fake/test identities',
+          metadata: { domainPart },
+        });
+      }
+
+      const emailKeywordMatch = this.findSuspiciousKeywordMatch(emailLower, suspiciousTokens, fuzzyDistance);
+      if (emailKeywordMatch.matched) {
+        score += 20;
+        reasons.push('Email contains suspicious test/fake keywords');
+        signals.push({
+          detectorName: 'phone',
+          signalType: 'suspicious_email_keyword',
+          severity: 'medium',
+          scoreContribution: 20,
+          reason: 'Email contains likely non-genuine identity tokens',
+          metadata: {
+            email: emailLower,
+            matchedKeyword: emailKeywordMatch.keyword,
+            fuzzyMatched: emailKeywordMatch.fuzzy,
+          },
+        });
+      }
+
+      if (localPart && /(.)\1{5,}/.test(localPart)) {
+        score += 10;
+        reasons.push('Email local-part has suspicious repeated character pattern');
+        signals.push({
+          detectorName: 'phone',
+          signalType: 'email_repeated_pattern',
+          severity: 'low',
+          scoreContribution: 10,
+          reason: 'Email local-part pattern appears synthetic',
+        });
+      }
+    }
+
+    const normalizedName = this.normalizeText(customerName || '');
+    const normalizedAddressLine = this.normalizeText(
+      [shippingAddress?.address1, shippingAddress?.address2].filter(Boolean).join(' '),
+    );
+    const identityText = `${normalizedName} ${normalizedAddressLine}`.trim();
+
+    const identityKeywordMatch = this.findSuspiciousKeywordMatch(identityText, suspiciousTokens, fuzzyDistance);
+    if (identityText && identityKeywordMatch.matched) {
+      score += 30;
+      reasons.push('Customer name/address contains suspicious fake/testing keywords');
+      signals.push({
+        detectorName: 'phone',
+        signalType: 'suspicious_identity_keywords',
+        severity: 'high',
+        scoreContribution: 30,
+        reason: 'Name/address text indicates synthetic or test identity',
+        metadata: {
+          customerName,
+          address1: shippingAddress?.address1 || null,
+          address2: shippingAddress?.address2 || null,
+          matchedKeyword: identityKeywordMatch.keyword,
+          fuzzyMatched: identityKeywordMatch.fuzzy,
+        },
+      });
+    }
+
+    if (this.isLikelyGibberishText(shippingAddress?.address1 || '')) {
+      score += 30;
+      reasons.push('Shipping address appears gibberish or pattern-generated');
+      signals.push({
+        detectorName: 'phone',
+        signalType: 'gibberish_shipping_address',
+        severity: 'high',
+        scoreContribution: 30,
+        reason: 'Address line failed quality heuristics',
+        metadata: {
+          address1: shippingAddress?.address1 || null,
+        },
+      });
+    }
+
+    const normalizedContactPhone = this.normalizePhone(contactRawPhone || phone);
+    const shippingPhone = this.normalizePhone(shippingAddress?.phone || '');
+    if (normalizedContactPhone && shippingPhone && normalizedContactPhone !== shippingPhone) {
+      score += 20;
+      reasons.push('Contact phone and shipping phone do not match');
+      signals.push({
+        detectorName: 'phone',
+        signalType: 'phone_mismatch_contact_vs_shipping',
+        severity: 'medium',
+        scoreContribution: 20,
+        reason: 'Different phones used for contact and shipping details',
+        metadata: {
+          contactPhone: normalizedContactPhone,
+          shippingPhone,
+        },
+      });
     }
 
     return {
@@ -1037,6 +1300,144 @@ export class FraudService {
     }
 
     return forward >= 5 || backward >= 5;
+  }
+
+  private isLikelyGibberishText(value: string) {
+    const normalized = this.normalizeText(value || '').replace(/\s+/g, '');
+    if (!normalized || normalized.length < 10) return false;
+
+    if (/([a-z])\1{4,}/.test(normalized)) {
+      return true;
+    }
+
+    if (/^([a-z]{2,4})\1{3,}$/.test(normalized)) {
+      return true;
+    }
+
+    const uniqueRatio = new Set(normalized.split('')).size / normalized.length;
+    return uniqueRatio < 0.35;
+  }
+
+  private normalizeKeywordList(values?: string[]) {
+    const source = Array.isArray(values) && values.length > 0 ? values : this.defaultSuspiciousKeywords;
+    return Array.from(
+      new Set(
+        source
+          .map((value) => (value || '').toString().trim().toLowerCase())
+          .filter((value) => value.length >= 2),
+      ),
+    );
+  }
+
+  private normalizeDomainList(values?: string[]) {
+    const source = Array.isArray(values) && values.length > 0 ? values : this.defaultDisposableDomains;
+    return Array.from(
+      new Set(
+        source
+          .map((value) => (value || '').toString().trim().toLowerCase())
+          .filter((value) => value.includes('.')),
+      ),
+    );
+  }
+
+  private normalizeFuzzyDistance(value?: number) {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+      return 1;
+    }
+    return Math.max(0, Math.min(2, Math.floor(value)));
+  }
+
+  private normalizeForFuzzy(text: string) {
+    const mapped = (text || '')
+      .toLowerCase()
+      .replace(/0/g, 'o')
+      .replace(/1/g, 'i')
+      .replace(/3/g, 'e')
+      .replace(/4/g, 'a')
+      .replace(/5/g, 's')
+      .replace(/7/g, 't')
+      .replace(/@/g, 'a')
+      .replace(/\$/g, 's');
+
+    return mapped.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  private findSuspiciousKeywordMatch(text: string, keywords: string[], fuzzyDistance: number) {
+    const normalizedText = this.normalizeForFuzzy(text);
+    if (!normalizedText || !keywords.length) {
+      return { matched: false, keyword: null, fuzzy: false };
+    }
+
+    const words = normalizedText.split(' ').filter(Boolean);
+    const compact = words.join('');
+
+    for (const keyword of keywords) {
+      if (!keyword) continue;
+
+      const k = this.normalizeForFuzzy(keyword).replace(/\s+/g, '');
+      if (!k) continue;
+
+      if (compact.includes(k) || words.some((w) => w.includes(k))) {
+        return { matched: true, keyword, fuzzy: false };
+      }
+
+      if (fuzzyDistance > 0 && k.length >= 4) {
+        for (const w of words) {
+          if (Math.abs(w.length - k.length) > fuzzyDistance) continue;
+          if (this.levenshteinDistance(w, k) <= fuzzyDistance) {
+            return { matched: true, keyword, fuzzy: true };
+          }
+        }
+      }
+    }
+
+    return { matched: false, keyword: null, fuzzy: false };
+  }
+
+  private levenshteinDistance(a: string, b: string) {
+    const matrix: number[][] = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
+
+    for (let i = 0; i <= a.length; i += 1) matrix[i][0] = i;
+    for (let j = 0; j <= b.length; j += 1) matrix[0][j] = j;
+
+    for (let i = 1; i <= a.length; i += 1) {
+      for (let j = 1; j <= b.length; j += 1) {
+        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j - 1] + cost,
+        );
+      }
+    }
+
+    return matrix[a.length][b.length];
+  }
+
+  private async getWorkspaceFraudLexicon(workspaceId: string): Promise<FraudLexiconConfig> {
+    try {
+      const rows = await this.prisma.$queryRawUnsafe<any[]>(
+        `SELECT "suspiciousKeywords", "disposableDomains", "fuzzyMatchDistance"
+         FROM fraud_rule_configs
+         WHERE "workspaceId" = $1
+         LIMIT 1`,
+        workspaceId,
+      );
+
+      const row = rows?.[0] || {};
+      return {
+        suspiciousKeywords: this.normalizeKeywordList(Array.isArray(row.suspiciousKeywords) ? row.suspiciousKeywords : undefined),
+        disposableDomains: this.normalizeDomainList(Array.isArray(row.disposableDomains) ? row.disposableDomains : undefined),
+        fuzzyMatchDistance: this.normalizeFuzzyDistance(row.fuzzyMatchDistance),
+      };
+    } catch (error) {
+      this.logger.warn(`Lexicon settings columns unavailable, using defaults: ${error instanceof Error ? error.message : String(error)}`);
+      return {
+        suspiciousKeywords: this.normalizeKeywordList(undefined),
+        disposableDomains: this.normalizeDomainList(undefined),
+        fuzzyMatchDistance: 1,
+      };
+    }
   }
 
   private clamp(score: number) {

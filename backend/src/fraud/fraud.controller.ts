@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Headers, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { FraudService } from './fraud.service';
 import { WorkspaceId } from '../common/decorators/user.decorator';
 import { TenantGuard } from '../common/guards/tenant.guard';
 import { FraudCheckDto } from './dto/fraud-check.dto';
 import { FraudBatchCheckDto } from './dto/fraud-batch-check.dto';
 import { Public } from '../common/decorators/public.decorator';
+import { FraudLexiconSettingsDto } from './dto/fraud-lexicon-settings.dto';
 
 @Controller('fraud')
 export class FraudController {
@@ -49,6 +50,33 @@ export class FraudController {
       .filter(Boolean);
 
     return this.fraudService.getFraudSummaries(workspaceId, orderIds);
+  }
+
+  @Get('lexicon')
+  @UseGuards(TenantGuard)
+  async getFraudLexicon(
+    @WorkspaceId() workspaceId: string,
+  ) {
+    return this.fraudService.getFraudLexiconSettings(workspaceId);
+  }
+
+  @Put('lexicon')
+  @UseGuards(TenantGuard)
+  async updateFraudLexicon(
+    @WorkspaceId() workspaceId: string,
+    @Body() dto: FraudLexiconSettingsDto,
+  ) {
+    return this.fraudService.updateFraudLexiconSettings(workspaceId, dto);
+  }
+
+  @Get('detector-performance')
+  @UseGuards(TenantGuard)
+  async getDetectorPerformance(
+    @WorkspaceId() workspaceId: string,
+    @Query('days') days?: string,
+  ) {
+    const parsedDays = days ? Number(days) : 30;
+    return this.fraudService.getDetectorPerformance(workspaceId, parsedDays);
   }
 
   @Public()

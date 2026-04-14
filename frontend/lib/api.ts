@@ -65,6 +65,16 @@ export const fraudApi = {
         orderIds: orderIds.join(','),
       },
     }),
+  getLexiconSettings: () => api.get('/fraud/lexicon'),
+  updateLexiconSettings: (data: {
+    suspiciousKeywords?: string[];
+    disposableDomains?: string[];
+    fuzzyMatchDistance?: number;
+  }) => api.put('/fraud/lexicon', data),
+  getDetectorPerformance: (days = 30) =>
+    api.get('/fraud/detector-performance', {
+      params: { days },
+    }),
 };
 
 export const crmApi = {

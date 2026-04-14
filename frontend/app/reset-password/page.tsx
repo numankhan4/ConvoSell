@@ -12,7 +12,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
 export default function ResetPasswordPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const tokenFromQuery = searchParams.get('token') || '';
+  const tokenFromQuery = useMemo(() => searchParams?.get('token') || '', [searchParams]);
 
   const [token, setToken] = useState(tokenFromQuery);
   const [newPassword, setNewPassword] = useState('');

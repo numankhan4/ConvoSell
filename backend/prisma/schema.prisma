@@ -496,6 +496,9 @@ model FraudRuleConfig {
   maxSingleContribution Int     @default(35)
   requireTwoHighSignals Boolean @default(true)
   highSignalThreshold   Int     @default(70)
+  suspiciousKeywords    Json    @default("[]")
+  disposableDomains     Json    @default("[]")
+  fuzzyMatchDistance    Int     @default(1)
 
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt

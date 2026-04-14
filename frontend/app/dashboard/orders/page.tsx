@@ -315,6 +315,57 @@ export default function OrdersPage() {
     return 'bg-slate-100 text-slate-600';
   };
 
+  const getFraudDecisionMeaning = (decision?: string) => {
+    if (decision === 'BLOCK') return 'High risk. Hold fulfillment and require manual fraud review before dispatch.';
+    if (decision === 'VERIFY') return 'Medium risk. Verify customer identity (OTP/call) before dispatch.';
+    if (decision === 'APPROVE') return 'Low risk. Order can proceed through normal fulfillment.';
+    return 'No fraud assessment available yet for this order.';
+  };
+
+  const getFraudSummaryTooltip = (summary?: any) => {
+    if (!summary) {
+      return getFraudDecisionMeaning(undefined);
+    }
+
+    const checkedText = summary.checked_at
+      ? ` Last checked: ${new Date(summary.checked_at).toLocaleString()}.`
+      : '';
+
+    return `${getFraudDecisionMeaning(summary.fraud_decision)} Score: ${summary.final_fraud_score ?? 'N/A'}.${checkedText}`;
+  };
+
+  const getFraudFilterTooltip = (value: string) => {
+    if (value === 'APPROVE') return 'Show low-risk orders that can proceed normally.';
+    if (value === 'VERIFY') return 'Show medium-risk orders needing identity verification.';
+    if (value === 'BLOCK') return 'Show high-risk orders requiring manual fraud review.';
+    if (value === 'UNCHECKED') return 'Show orders that have not been fraud-assessed yet.';
+    return 'Show all orders regardless of fraud decision.';
+  };
+
+  const getSignalSeverityColor = (severity?: string) => {
+    const s = (severity || '').toLowerCase();
+    if (s === 'high') return 'bg-red-100 text-red-700';
+    if (s === 'medium') return 'bg-amber-100 text-amber-700';
+    return 'bg-slate-100 text-slate-700';
+  };
+
+  const getSignalTypeMeaning = (signalType?: string) => {
+    const map: Record<string, string> = {
+      phone_velocity_24h: 'The same phone was used in unusually high order volume in the last 24 hours.',
+      address_name_mismatch: 'The same address appears across multiple customer identities.',
+      device_velocity_24h: 'The same device fingerprint or IP submitted many recent orders.',
+      disposable_or_test_email_domain: 'Email domain is associated with disposable or test inbox providers.',
+      suspicious_email_keyword: 'Email contains words/patterns commonly used in fake or test identities.',
+      suspicious_identity_keywords: 'Name/address text includes fake/test keyword patterns.',
+      gibberish_shipping_address: 'Shipping address failed quality checks and appears synthetic.',
+      phone_mismatch_contact_vs_shipping: 'Contact phone and shipping phone do not match.',
+      high_cancellation_rate: 'Customer has historically high cancellation behavior.',
+      shipping_ip_city_mismatch: 'IP location does not match the shipping location.',
+    };
+
+    return map[signalType || ''] || 'This signal increased fraud risk based on detector heuristics.';
+  };
+
   const handleCheckFraud = async (orderId: string) => {
     try {
       setCheckingFraudId(orderId);
@@ -536,6 +587,7 @@ export default function OrdersPage() {
                 ? 'bg-slate-900 text-white'
                 : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
             }`}
+            title={getFraudFilterTooltip(item.value)}
           >
             {item.label}
           </button>
@@ -638,10 +690,13 @@ export default function OrdersPage() {
               <div key={order.id} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 hover:shadow-md transition-shadow">
                 {fraudSummary && (
                   <div className="mb-3 flex items-center justify-between">
-                    <span className={`px-2 py-1 rounded text-xs font-semibold ${getFraudDecisionColor(fraudSummary.fraud_decision)}`}>
+                    <span
+                      className={`px-2 py-1 rounded text-xs font-semibold ${getFraudDecisionColor(fraudSummary.fraud_decision)}`}
+                      title={getFraudSummaryTooltip(fraudSummary)}
+                    >
                       {fraudSummary.fraud_decision}
                     </span>
-                    <span className="text-xs text-slate-600">
+                    <span className="text-xs text-slate-600" title={getFraudSummaryTooltip(fraudSummary)}>
                       Score: <span className="font-semibold text-slate-900">{fraudSummary.final_fraud_score}</span>
                     </span>
                   </div>
@@ -676,7 +731,7 @@ export default function OrdersPage() {
                     className={`px-2.5 py-1 rounded-full text-xs font-semibold ${getStatusColor(
                       order.status
                     )}`}
-                    title={order.status === 'cancelled' && order.feedbackReason ? `Reason: ${getFeedbackLabel(order.feedbackReason)}` : undefined}
+                    title={order.status === 'cancelled' && order.feedbackReason ? `Reason: ${getFeedbackLabel(order.feedbackReason)}` : `Order status is ${order.status}.`}
                   >
                     {order.status}
                   </span>
@@ -903,7 +958,7 @@ export default function OrdersPage() {
                         className={`px-3 py-1 rounded-full text-xs font-semibold cursor-help ${getStatusColor(
                           order.status
                         )}`}
-                        title={order.status === 'cancelled' && order.feedbackReason ? `Cancellation Reason: ${getFeedbackLabel(order.feedbackReason)}` : undefined}
+                        title={order.status === 'cancelled' && order.feedbackReason ? `Cancellation Reason: ${getFeedbackLabel(order.feedbackReason)}` : `Order status is ${order.status}.`}
                       >
                         {order.status === 'cancelled' && order.feedbackReason ? (
                           <span>{order.status} ℹ️</span>
@@ -915,13 +970,16 @@ export default function OrdersPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       {fraudSummary ? (
                         <div className="flex items-center gap-2">
-                          <span className={`px-2 py-1 rounded text-xs font-semibold ${getFraudDecisionColor(fraudSummary.fraud_decision)}`}>
+                          <span
+                            className={`px-2 py-1 rounded text-xs font-semibold ${getFraudDecisionColor(fraudSummary.fraud_decision)}`}
+                            title={getFraudSummaryTooltip(fraudSummary)}
+                          >
                             {fraudSummary.fraud_decision}
                           </span>
-                          <span className="text-slate-700 font-medium">{fraudSummary.final_fraud_score}</span>
+                          <span className="text-slate-700 font-medium" title={getFraudSummaryTooltip(fraudSummary)}>{fraudSummary.final_fraud_score}</span>
                         </div>
                       ) : (
-                        <span className="text-slate-400">Not checked</span>
+                        <span className="text-slate-400" title={getFraudSummaryTooltip(undefined)}>Not checked</span>
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
@@ -1161,7 +1219,10 @@ export default function OrdersPage() {
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Decision</p>
                         <div className="mt-1 flex items-center gap-2">
-                          <span className={`px-2 py-1 rounded text-xs font-semibold ${getFraudDecisionColor(fraudReportData.latest.fraud_decision)}`}>
+                          <span
+                            className={`px-2 py-1 rounded text-xs font-semibold ${getFraudDecisionColor(fraudReportData.latest.fraud_decision)}`}
+                            title={getFraudDecisionMeaning(fraudReportData.latest.fraud_decision)}
+                          >
                             {fraudReportData.latest.fraud_decision}
                           </span>
                           <span className="text-sm font-medium text-slate-800">
@@ -1224,10 +1285,23 @@ export default function OrdersPage() {
                         {(fraudReportData.signals || []).map((signal: any) => (
                           <div key={signal.id} className="rounded-lg border border-slate-200 bg-white p-3 text-sm">
                             <div className="flex items-center justify-between">
-                              <span className="font-medium text-slate-800">{signal.detectorName} / {signal.signalType}</span>
-                              <span className="rounded bg-slate-100 px-2 py-0.5 text-slate-700">+{signal.scoreContribution}</span>
+                              <span className="font-medium text-slate-800" title={getSignalTypeMeaning(signal.signalType)}>
+                                {signal.detectorName} / {signal.signalType}
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`rounded px-2 py-0.5 text-xs font-semibold ${getSignalSeverityColor(signal.severity)}`}
+                                  title={`Severity: ${(signal.severity || 'low').toUpperCase()}. ${getSignalTypeMeaning(signal.signalType)}`}
+                                >
+                                  {(signal.severity || 'low').toUpperCase()}
+                                </span>
+                                <span className="rounded bg-slate-100 px-2 py-0.5 text-slate-700" title="Score contribution from this signal">
+                                  +{signal.scoreContribution}
+                                </span>
+                              </div>
                             </div>
                             <p className="mt-1 text-slate-700">{signal.reason}</p>
+                            <p className="mt-1 text-xs text-slate-500">{getSignalTypeMeaning(signal.signalType)}</p>
                           </div>
                         ))}
                       </div>
