@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { ordersApi, automationsApi, fraudApi } from '@/lib/api';
 import { PermissionGate } from '@/components/PermissionGate';
 import ExportConfirmModal from '@/components/ExportConfirmModal';
@@ -340,6 +341,23 @@ export default function OrdersPage() {
     if (value === 'BLOCK') return 'Show high-risk orders requiring manual fraud review.';
     if (value === 'UNCHECKED') return 'Show orders that have not been fraud-assessed yet.';
     return 'Show all orders regardless of fraud decision.';
+  };
+
+  const getOrderStatusMeaning = (order: any) => {
+    const status = (order?.status || '').toLowerCase();
+
+    if (status === 'pending') return 'Pending: waiting for customer confirmation and fulfillment action.';
+    if (status === 'confirmed') return 'Confirmed: customer confirmed order details.';
+    if (status === 'completed') return 'Completed: order was fulfilled successfully.';
+    if (status === 'fake') return 'Fake: marked as fraudulent or invalid order.';
+    if (status === 'cancelled') {
+      const reason = getFeedbackLabel(order?.feedbackReason);
+      return reason
+        ? `Cancelled: customer cancelled the order. Reason: ${reason.replace(/^[^A-Za-z0-9]+\s*/, '')}.`
+        : 'Cancelled: order was cancelled before fulfillment.';
+    }
+
+    return `Status: ${order?.status || 'unknown'}.`;
   };
 
   const getSignalSeverityColor = (severity?: string) => {
@@ -727,14 +745,15 @@ export default function OrdersPage() {
                       )}
                     </div>
                   </div>
-                  <span
-                    className={`px-2.5 py-1 rounded-full text-xs font-semibold ${getStatusColor(
-                      order.status
-                    )}`}
-                    title={order.status === 'cancelled' && order.feedbackReason ? `Reason: ${getFeedbackLabel(order.feedbackReason)}` : `Order status is ${order.status}.`}
-                  >
-                    {order.status}
-                  </span>
+                  <TooltipBadge content={getOrderStatusMeaning(order)}>
+                    <span
+                      className={`cursor-help px-2.5 py-1 rounded-full text-xs font-semibold ${getStatusColor(
+                        order.status
+                      )}`}
+                    >
+                      {order.status}
+                    </span>
+                  </TooltipBadge>
                 </div>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
@@ -875,7 +894,7 @@ export default function OrdersPage() {
           )}
 
           {/* Desktop Table View */}
-          <div className="hidden lg:block bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="hidden lg:block bg-white rounded-xl shadow-sm border border-slate-200 overflow-visible">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-200">
               <thead className="bg-slate-50">
@@ -954,28 +973,28 @@ export default function OrdersPage() {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span
-                        className={`px-3 py-1 rounded-full text-xs font-semibold cursor-help ${getStatusColor(
-                          order.status
-                        )}`}
-                        title={order.status === 'cancelled' && order.feedbackReason ? `Cancellation Reason: ${getFeedbackLabel(order.feedbackReason)}` : `Order status is ${order.status}.`}
-                      >
+                      <TooltipBadge content={getOrderStatusMeaning(order)}>
+                        <span
+                          className={`px-3 py-1 rounded-full text-xs font-semibold cursor-help ${getStatusColor(
+                            order.status
+                          )}`}
+                        >
                         {order.status === 'cancelled' && order.feedbackReason ? (
                           <span>{order.status} ℹ️</span>
                         ) : (
                           order.status
                         )}
-                      </span>
+                        </span>
+                      </TooltipBadge>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       {fraudSummary ? (
                         <div className="flex items-center gap-2">
-                          <span
-                            className={`px-2 py-1 rounded text-xs font-semibold ${getFraudDecisionColor(fraudSummary.fraud_decision)}`}
-                            title={getFraudSummaryTooltip(fraudSummary)}
-                          >
-                            {fraudSummary.fraud_decision}
-                          </span>
+                          <TooltipBadge content={getFraudSummaryTooltip(fraudSummary)}>
+                            <span className={`cursor-help px-2 py-1 rounded text-xs font-semibold ${getFraudDecisionColor(fraudSummary.fraud_decision)}`}>
+                              {fraudSummary.fraud_decision}
+                            </span>
+                          </TooltipBadge>
                           <span className="text-slate-700 font-medium" title={getFraudSummaryTooltip(fraudSummary)}>{fraudSummary.final_fraud_score}</span>
                         </div>
                       ) : (
@@ -1332,6 +1351,67 @@ export default function OrdersPage() {
         />
       )}
     </div>
+  );
+}
+
+function TooltipBadge({ content, children }: { content: string; children: ReactNode }) {
+  const triggerRef = useRef<HTMLSpanElement | null>(null);
+  const [visible, setVisible] = useState(false);
+  const [coords, setCoords] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
+
+  const updatePosition = () => {
+    if (!triggerRef.current || typeof window === 'undefined') return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    setCoords({
+      left: rect.left + rect.width / 2,
+      top: rect.bottom + 8,
+    });
+  };
+
+  useEffect(() => {
+    if (!visible) return;
+
+    const onScrollOrResize = () => updatePosition();
+    window.addEventListener('scroll', onScrollOrResize, true);
+    window.addEventListener('resize', onScrollOrResize);
+    return () => {
+      window.removeEventListener('scroll', onScrollOrResize, true);
+      window.removeEventListener('resize', onScrollOrResize);
+    };
+  }, [visible]);
+
+  return (
+    <span
+      ref={triggerRef}
+      className="inline-flex"
+      tabIndex={0}
+      aria-label={content}
+      onMouseEnter={() => {
+        updatePosition();
+        setVisible(true);
+      }}
+      onMouseLeave={() => setVisible(false)}
+      onFocus={() => {
+        updatePosition();
+        setVisible(true);
+      }}
+      onBlur={() => setVisible(false)}
+    >
+      {children}
+      {visible && typeof document !== 'undefined' && createPortal(
+        <span
+          className="pointer-events-none fixed z-[9999] w-64 -translate-x-1/2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-left text-xs text-white shadow-2xl"
+          style={{
+            left: `${coords.left}px`,
+            top: `${coords.top}px`,
+          }}
+          role="tooltip"
+        >
+          {content}
+        </span>,
+        document.body,
+      )}
+    </span>
   );
 }
 
