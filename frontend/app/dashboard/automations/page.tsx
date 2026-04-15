@@ -524,6 +524,7 @@ export default function AutomationsPage() {
       {showCreateModal && (
         <CreateAutomationModal
           initialData={initialFormData}
+          workspaceCurrency={workspaceCurrency}
           onClose={() => {
             setShowCreateModal(false);
             setInitialFormData(null);
@@ -776,10 +777,12 @@ function AutomationQuickTemplatePicker({
 // Create Automation Modal Component
 function CreateAutomationModal({ 
   initialData, 
+  workspaceCurrency,
   onClose, 
   onSuccess 
 }: { 
   initialData?: any;
+  workspaceCurrency: string;
   onClose: () => void; 
   onSuccess: () => void;
 }) {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 interface TestResult {
   success: boolean;
@@ -16,6 +16,19 @@ interface ConnectionTesterProps {
   disabled?: boolean;
 }
 
+const PROGRESS_MESSAGES = {
+  whatsapp: [
+    'Testing access token...',
+    'Verifying phone number access...',
+    'Checking business account permissions...',
+  ],
+  shopify: [
+    'Validating shop domain...',
+    'Testing client credentials...',
+    'Exchanging for access token...',
+  ],
+};
+
 export default function ConnectionTester({
   type,
   credentials,
@@ -25,6 +38,20 @@ export default function ConnectionTester({
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [showDetails, setShowDetails] = useState(false);
+  const [messageIndex, setMessageIndex] = useState(0);
+
+  useEffect(() => {
+    if (!isTesting) {
+      setMessageIndex(0);
+      return;
+    }
+
+    const timer = setInterval(() => {
+      setMessageIndex((prev) => (prev + 1) % PROGRESS_MESSAGES[type].length);
+    }, 1500);
+
+    return () => clearInterval(timer);
+  }, [isTesting, type]);
 
   const handleTest = async () => {
     setIsTesting(true);
@@ -78,31 +105,11 @@ export default function ConnectionTester({
 
   const getProgressMessage = () => {
     if (!isTesting) return null;
-    
-    const messages = {
-      whatsapp: [
-        'Testing access token...',
-        'Verifying phone number access...',
-        'Checking business account permissions...',
-      ],
-      shopify: [
-        'Validating shop domain...',
-        'Testing client credentials...',
-        'Exchanging for access token...',
-      ],
-    };
-
-    // Cycle through messages every 1.5 seconds
-    const [messageIndex, setMessageIndex] = useState(0);
-    
-    setTimeout(() => {
-      setMessageIndex((prev) => (prev + 1) % messages[type].length);
-    }, 1500);
 
     return (
       <div className="flex items-center gap-2 text-sm text-blue-700">
         <div className="animate-pulse">⏳</div>
-        <span>{messages[type][messageIndex]}</span>
+        <span>{PROGRESS_MESSAGES[type][messageIndex]}</span>
       </div>
     );
   };
