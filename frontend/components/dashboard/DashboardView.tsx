@@ -42,7 +42,7 @@ export function DashboardView({
 
   return (
     <div className="space-y-8">
-      <section className="rounded-3xl bg-[radial-gradient(circle_at_top_right,_rgba(255,255,255,0.14),_transparent_46%),linear-gradient(120deg,_#312E81_0%,_#4338CA_52%,_#4F46E5_100%)] p-6 sm:p-8 text-white shadow-xl">
+      <section className="rounded-3xl bg-[radial-gradient(circle_at_top_right,_rgba(255,255,255,0.08),_transparent_48%),linear-gradient(120deg,_#312E81_0%,_#3730A3_52%,_#4338CA_100%)] p-6 sm:p-8 text-white shadow-xl">
         <div className="flex flex-col gap-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
@@ -391,14 +391,14 @@ function KpiCard({
     <article
       className={`rounded-2xl border p-4 shadow-sm ${
         featured
-          ? 'border-primary-800 bg-[radial-gradient(circle_at_top_right,_rgba(255,255,255,0.2),_transparent_44%),linear-gradient(125deg,_#312E81_0%,_#4338CA_55%,_#4F46E5_100%)] text-white'
+          ? 'border-primary-800 bg-[radial-gradient(circle_at_top_right,_rgba(255,255,255,0.1),_transparent_46%),linear-gradient(125deg,_#312E81_0%,_#3730A3_58%,_#4338CA_100%)] text-white'
           : toneStyle[tone]
       }`}
     >
       <p className={`text-sm font-medium ${featured ? 'text-primary-200' : 'text-neutral-600'}`}>{label}</p>
       <p className={`mt-2 text-2xl font-semibold ${featured ? 'text-white' : 'text-neutral-900'}`}>{value}</p>
       <p className={`mt-1 text-sm ${featured ? 'text-primary-100' : 'text-neutral-700'}`}>{change}</p>
-      <div className={`mt-3 rounded-lg ${featured ? 'bg-white/12 ring-1 ring-white/15' : 'bg-white/60'} p-2`}>
+      <div className={`mt-3 rounded-lg ${featured ? 'bg-white/10 ring-1 ring-white/10' : 'bg-white/60'} p-2`}>
         <Sparkline points={trendPoints} strokeClass={sparklineStroke} />
       </div>
       <p className={`mt-2 text-xs ${featured ? 'text-primary-100' : 'text-neutral-600'}`}>{description}</p>
