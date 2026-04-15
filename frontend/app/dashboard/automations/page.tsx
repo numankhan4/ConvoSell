@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { automationsApi } from '@/lib/api';
+import { automationsApi, settingsApi } from '@/lib/api';
 import { PermissionGate } from '@/components/PermissionGate';
 import { usePermissions, Permissions } from '@/lib/hooks/usePermissions';
 import toast from 'react-hot-toast';
+import { normalizeCurrencyCode } from '@/lib/currency';
 
 interface Automation {
   id: string;
@@ -48,6 +49,7 @@ export default function AutomationsPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedAutomation, setSelectedAutomation] = useState<Automation | null>(null);
   const [initialFormData, setInitialFormData] = useState<any>(null);
+  const [workspaceCurrency, setWorkspaceCurrency] = useState('PKR');
   
   // Delete states
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -56,8 +58,18 @@ export default function AutomationsPage() {
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
+    loadWorkspaceCurrency();
     loadAutomations();
   }, []);
+
+  const loadWorkspaceCurrency = async () => {
+    try {
+      const response = await settingsApi.getWorkspaceCurrency();
+      setWorkspaceCurrency(normalizeCurrencyCode(response.data?.currency));
+    } catch (error) {
+      console.error('Failed to load workspace currency', error);
+    }
+  };
 
   const loadAutomations = async () => {
     setLoading(true);
@@ -1081,7 +1093,7 @@ function CreateAutomationModal({
                       {formData.actions[0].template
                         .replace('{{customer_name}}', 'Ahmad Khan')
                         .replace('{{order_number}}', '#1001')
-                        .replace('{{order_total}}', 'PKR 2,500')
+                        .replace('{{order_total}}', `${workspaceCurrency} 2,500`)
                         || 'Your message will appear here...'}
                     </div>
                     {formData.actions[0].useButtons && (

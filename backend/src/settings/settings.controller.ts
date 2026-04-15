@@ -130,6 +130,11 @@ export class SettingsController {
     return this.settingsService.getShopifyStore(req.user.workspaceId);
   }
 
+  @Get('currency')
+  async getWorkspaceCurrency(@Request() req) {
+    return this.settingsService.getWorkspaceCurrency(req.user.workspaceId);
+  }
+
   @Post('shopify')
   async createShopifyStore(@Request() req, @Body() dto: CreateShopifyStoreDto) {
     return this.settingsService.createShopifyStore(req.user.workspaceId, dto);

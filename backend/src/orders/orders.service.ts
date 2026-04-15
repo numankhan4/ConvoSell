@@ -228,6 +228,8 @@ export class OrdersService {
       baseWhere.status = statusFilter;
     }
 
+    const currencyInfo = await this.settingsService.getWorkspaceCurrency(workspaceId);
+
     const [
       totalOrders,
       pendingOrders,
@@ -275,6 +277,8 @@ export class OrdersService {
       confirmedOrders,
       cancelledOrders,
       completedOrders,
+      currency: currencyInfo.currency,
+      supportedCurrencies: currencyInfo.supportedCurrencies,
       // Backward-compatible alias used by current dashboard card.
       totalRevenue: expectedRevenue._sum.totalAmount || 0,
       expectedRevenue: expectedRevenue._sum.totalAmount || 0,

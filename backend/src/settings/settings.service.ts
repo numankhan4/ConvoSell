@@ -11,6 +11,7 @@ import { decryptSecret, encryptSecret, generateWebhookVerifyToken } from '../com
 @Injectable()
 export class SettingsService {
   private readonly logger = new Logger(SettingsService.name);
+  private static readonly DEFAULT_CURRENCY = 'PKR';
 
   constructor(
     private prisma: PrismaService,
@@ -18,6 +19,61 @@ export class SettingsService {
     private httpService: HttpService,
     private whatsappTokenService: WhatsAppTokenService,
   ) {}
+
+  private normalizeCurrencyCode(currency?: string | null): string | null {
+    if (!currency) return null;
+    const normalized = String(currency).trim().toUpperCase();
+    return /^[A-Z]{3}$/.test(normalized) ? normalized : null;
+  }
+
+  async getWorkspaceCurrency(workspaceId: string) {
+    const activeStore = await this.prisma.shopifyStore.findFirst({
+      where: {
+        workspaceId,
+        isActive: true,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        shopDomain: true,
+      },
+    });
+
+    if (!activeStore) {
+      return {
+        currency: SettingsService.DEFAULT_CURRENCY,
+        supportedCurrencies: [SettingsService.DEFAULT_CURRENCY],
+        source: 'fallback',
+        shopDomain: null,
+      };
+    }
+
+    const recentOrderCurrencies = await this.prisma.order.findMany({
+      where: {
+        workspaceId,
+        shopifyStoreId: activeStore.id,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 300,
+      select: { currency: true },
+    });
+
+    const normalizedCurrencies = recentOrderCurrencies
+      .map((order) => this.normalizeCurrencyCode(order.currency))
+      .filter((value): value is string => Boolean(value));
+
+    const currency = normalizedCurrencies[0] || SettingsService.DEFAULT_CURRENCY;
+    const supportedCurrencies = Array.from(new Set(normalizedCurrencies));
+
+    return {
+      currency,
+      supportedCurrencies: supportedCurrencies.length
+        ? supportedCurrencies
+        : [SettingsService.DEFAULT_CURRENCY],
+      source: normalizedCurrencies.length ? 'orders' : 'fallback',
+      shopDomain: activeStore.shopDomain,
+    };
+  }
 
   // ============================================================
   // ORDER VERIFICATION POLICY

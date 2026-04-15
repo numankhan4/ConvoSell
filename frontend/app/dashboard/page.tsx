@@ -1,18 +1,21 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { ordersApi } from '@/lib/api';
+import { ordersApi, settingsApi } from '@/lib/api';
 import { PermissionGate } from '@/components/PermissionGate';
 import { usePermissions, Permissions } from '@/lib/hooks/usePermissions';
 import Link from 'next/link';
+import { formatMoney, normalizeCurrencyCode } from '@/lib/currency';
 
 export default function DashboardPage() {
   const { role } = usePermissions();
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [workspaceCurrency, setWorkspaceCurrency] = useState('PKR');
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
+    loadWorkspaceCurrency();
     loadStats();
 
     // Poll stats less aggressively and only while tab is visible.
@@ -32,10 +35,22 @@ export default function DashboardPage() {
     try {
       const response = await ordersApi.getStatistics();
       setStats(response.data);
+      if (response.data?.currency) {
+        setWorkspaceCurrency(normalizeCurrencyCode(response.data.currency));
+      }
     } catch (error) {
       console.error('Failed to load statistics', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadWorkspaceCurrency = async () => {
+    try {
+      const response = await settingsApi.getWorkspaceCurrency();
+      setWorkspaceCurrency(normalizeCurrencyCode(response.data?.currency));
+    } catch (error) {
+      console.error('Failed to load workspace currency', error);
     }
   };
 
@@ -95,7 +110,7 @@ export default function DashboardPage() {
         >
           <StatCard
             title="Total Revenue"
-            value={`PKR ${stats?.totalRevenue?.toLocaleString() || 0}`}
+            value={formatMoney(stats?.totalRevenue || 0, workspaceCurrency)}
             change="From confirmed + completed orders"
             trend="up"
             icon={
@@ -137,17 +152,17 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
             <p className="text-sm text-slate-600">Expected Revenue</p>
-            <p className="text-2xl font-bold text-green-700 mt-1">PKR {stats?.expectedRevenue?.toLocaleString() || 0}</p>
+            <p className="text-2xl font-bold text-green-700 mt-1">{formatMoney(stats?.expectedRevenue || 0, workspaceCurrency)}</p>
             <p className="text-xs text-slate-500 mt-1">Confirmed + Completed</p>
           </div>
           <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
             <p className="text-sm text-slate-600">Realized Revenue</p>
-            <p className="text-2xl font-bold text-blue-700 mt-1">PKR {stats?.realizedRevenue?.toLocaleString() || 0}</p>
+            <p className="text-2xl font-bold text-blue-700 mt-1">{formatMoney(stats?.realizedRevenue || 0, workspaceCurrency)}</p>
             <p className="text-xs text-slate-500 mt-1">Completed only</p>
           </div>
           <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
             <p className="text-sm text-slate-600">Pending Value</p>
-            <p className="text-2xl font-bold text-amber-700 mt-1">PKR {stats?.pendingValue?.toLocaleString() || 0}</p>
+            <p className="text-2xl font-bold text-amber-700 mt-1">{formatMoney(stats?.pendingValue || 0, workspaceCurrency)}</p>
             <p className="text-xs text-slate-500 mt-1">Awaiting confirmation</p>
           </div>
         </div>

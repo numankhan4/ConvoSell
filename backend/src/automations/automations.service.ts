@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { SettingsService } from '../settings/settings.service';
 
 @Injectable()
 export class AutomationsService {
@@ -9,7 +10,17 @@ export class AutomationsService {
   constructor(
     private prisma: PrismaService,
     private whatsappService: WhatsAppService,
+    private settingsService: SettingsService,
   ) {}
+
+  private async getOrderCurrency(order: any, workspaceId: string): Promise<string> {
+    if (order?.currency && /^[A-Z]{3}$/i.test(order.currency)) {
+      return String(order.currency).toUpperCase();
+    }
+
+    const currencyInfo = await this.settingsService.getWorkspaceCurrency(workspaceId);
+    return currencyInfo.currency;
+  }
 
   /**
    * Get all automations
@@ -139,13 +150,13 @@ export class AutomationsService {
     return Boolean(action?.templateId || actionConfig?.templateId);
   }
 
-  private resolveOrderVariables(value: string, order: any): string {
+  private resolveOrderVariables(value: string, order: any, fallbackCurrency: string): string {
     if (typeof value !== 'string') return '';
 
     const replacements: Record<string, string> = {
       '{{customer_name}}': order?.contact?.name || 'Customer',
       '{{order_number}}': String(order?.externalOrderNumber || order?.externalOrderId || order?.id || ''),
-      '{{order_total}}': `${order?.currency || 'PKR'} ${order?.totalAmount ?? 0}`,
+      '{{order_total}}': `${order?.currency || fallbackCurrency} ${order?.totalAmount ?? 0}`,
       '{{payment_method}}': String(order?.paymentMethod || ''),
     };
 
@@ -179,15 +190,16 @@ export class AutomationsService {
     const headerParamsInput = action?.headerParams || actionConfig?.headerParams || [];
     const bodyParamsInput = action?.bodyParams || actionConfig?.bodyParams || [];
     const buttonParamsInput = action?.buttonParams || actionConfig?.buttonParams || [];
+    const fallbackCurrency = await this.getOrderCurrency(order, workspaceId);
 
     const headerParams = Array.isArray(headerParamsInput)
-      ? headerParamsInput.map((value: any) => this.resolveOrderVariables(String(value ?? ''), order))
+      ? headerParamsInput.map((value: any) => this.resolveOrderVariables(String(value ?? ''), order, fallbackCurrency))
       : [];
     const bodyParams = Array.isArray(bodyParamsInput)
-      ? bodyParamsInput.map((value: any) => this.resolveOrderVariables(String(value ?? ''), order))
+      ? bodyParamsInput.map((value: any) => this.resolveOrderVariables(String(value ?? ''), order, fallbackCurrency))
       : [];
     const buttonParams = Array.isArray(buttonParamsInput)
-      ? buttonParamsInput.map((value: any) => this.resolveOrderVariables(String(value ?? ''), order))
+      ? buttonParamsInput.map((value: any) => this.resolveOrderVariables(String(value ?? ''), order, fallbackCurrency))
       : [];
 
     await this.whatsappService.sendManagedTemplateMessage({
@@ -236,7 +248,8 @@ export class AutomationsService {
     // Replace template variables
     message = message.replace('{{customer_name}}', order.contact.name || 'Customer');
     message = message.replace('{{order_number}}', String(order.externalOrderNumber || order.externalOrderId || order.id));
-    message = message.replace('{{order_total}}', `${order.currency || 'PKR'} ${order.totalAmount ?? 0}`);
+    const orderCurrency = await this.getOrderCurrency(order, workspaceId);
+    message = message.replace('{{order_total}}', `${order.currency || orderCurrency} ${order.totalAmount ?? 0}`);
 
     // Send via WhatsApp
     if (action.useButtons || actionConfig.useButtons) {

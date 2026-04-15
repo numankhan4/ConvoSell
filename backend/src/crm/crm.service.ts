@@ -5,6 +5,8 @@ import { PrismaService } from '../common/prisma/prisma.service';
 export class CrmService {
   constructor(private prisma: PrismaService) {}
 
+  private readonly SPENT_ORDER_STATUSES = ['confirmed', 'completed'] as const;
+
   private async writeReadAudit(
     workspaceId: string,
     action: string,
@@ -78,17 +80,59 @@ export class CrmService {
       this.prisma.contact.count({ where }),
     ]);
 
+    const contactIds = contacts.map((contact) => contact.id);
+    const [orderCountsByContact, spentByContact] = await Promise.all([
+      contactIds.length
+        ? this.prisma.order.groupBy({
+            by: ['contactId'],
+            where: {
+              workspaceId,
+              contactId: { in: contactIds },
+            },
+            _count: {
+              _all: true,
+            },
+          })
+        : Promise.resolve([]),
+      contactIds.length
+        ? this.prisma.order.groupBy({
+            by: ['contactId'],
+            where: {
+              workspaceId,
+              contactId: { in: contactIds },
+              status: { in: [...this.SPENT_ORDER_STATUSES] },
+            },
+            _sum: {
+              totalAmount: true,
+            },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const orderCountMap = new Map<string, number>(
+      orderCountsByContact.map((row): [string, number] => [row.contactId, row._count._all || 0]),
+    );
+    const spentMap = new Map<string, number>(
+      spentByContact.map((row): [string, number] => [row.contactId, row._sum.totalAmount || 0]),
+    );
+
+    const contactsWithComputedStats = contacts.map((contact) => ({
+      ...contact,
+      totalOrders: orderCountMap.get(contact.id) || 0,
+      totalSpent: spentMap.get(contact.id) || 0,
+    }));
+
     await this.writeReadAudit(workspaceId, 'contacts.list.view', 'contact', null, {
       page,
       limit,
       hasSearch: !!params.search,
       hasTags: !!params.tags?.length,
-      resultCount: contacts.length,
+      resultCount: contactsWithComputedStats.length,
       total,
     });
 
     return {
-      data: contacts,
+      data: contactsWithComputedStats,
       meta: {
         page,
         limit,
@@ -119,11 +163,21 @@ export class CrmService {
       },
     });
 
+    const contactWithComputedStats = contact
+      ? {
+          ...contact,
+          totalOrders: contact.orders.length,
+          totalSpent: contact.orders
+            .filter((order) => this.SPENT_ORDER_STATUSES.includes(order.status as (typeof this.SPENT_ORDER_STATUSES)[number]))
+            .reduce((sum, order) => sum + (order.totalAmount || 0), 0),
+        }
+      : null;
+
     await this.writeReadAudit(workspaceId, 'contact.detail.view', 'contact', contactId, {
       found: !!contact,
     });
 
-    return contact;
+    return contactWithComputedStats;
   }
 
   /**

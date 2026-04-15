@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { crmApi } from '@/lib/api';
+import { crmApi, settingsApi } from '@/lib/api';
 import { PermissionGate } from '@/components/PermissionGate';
 import ExportConfirmModal from '@/components/ExportConfirmModal';
 import { usePermissions, Permissions } from '@/lib/hooks/usePermissions';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
+import { formatMoney, normalizeCurrencyCode } from '@/lib/currency';
 
 export default function ContactsPage() {
   const { role } = usePermissions();
@@ -18,6 +19,7 @@ export default function ContactsPage() {
   const [selectedContact, setSelectedContact] = useState<any>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [workspaceCurrency, setWorkspaceCurrency] = useState('PKR');
   
   // Add Contact Modal State
   const [showAddModal, setShowAddModal] = useState(false);
@@ -32,6 +34,19 @@ export default function ContactsPage() {
   useEffect(() => {
     loadContacts();
   }, [searchQuery]);
+
+  useEffect(() => {
+    loadWorkspaceCurrency();
+  }, []);
+
+  const loadWorkspaceCurrency = async () => {
+    try {
+      const response = await settingsApi.getWorkspaceCurrency();
+      setWorkspaceCurrency(normalizeCurrencyCode(response.data?.currency));
+    } catch (error) {
+      console.error('Failed to load workspace currency', error);
+    }
+  };
 
   const loadContacts = async () => {
     setLoading(true);
@@ -133,10 +148,7 @@ export default function ContactsPage() {
   };
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-    }).format(amount);
+    return formatMoney(amount, workspaceCurrency);
   };
 
   const formatDate = (date: string) => {

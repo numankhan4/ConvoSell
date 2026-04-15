@@ -109,6 +109,10 @@ export const automationsApi = {
     api.post('/automations/delete-multiple', { automationIds }),
 };
 
+export const settingsApi = {
+  getWorkspaceCurrency: () => api.get('/settings/currency'),
+};
+
 export const healthApi = {
   getWorkspaceHealth: () => api.get('/health/workspace'),
   getSystemHealth: () => api.get('/health/system'),
