@@ -61,7 +61,7 @@ export class JobsService {
         });
 
         // Enqueue job based on event type
-        if (event.eventType.startsWith('order.')) {
+        if (event.eventType.startsWith('order.') || event.eventType.startsWith('cart.')) {
           await this.outboxQueue.add('process-order-event', {
             eventId: event.id,
             eventType: event.eventType,

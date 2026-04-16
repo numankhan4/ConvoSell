@@ -49,6 +49,30 @@ export class SettingsController {
   }
 
   // ============================================================
+  // CART RECOVERY POLICY
+  // ============================================================
+
+  @Get('cart-recovery')
+  async getCartRecoverySettings(@Request() req) {
+    return this.settingsService.getCartRecoverySettings(req.user.workspaceId);
+  }
+
+  @Put('cart-recovery')
+  async updateCartRecoverySettings(
+    @Request() req,
+    @Body()
+    dto: {
+      enabled?: boolean;
+      firstReminderHours?: number;
+      secondReminderHours?: number;
+      maxReminders?: number;
+      minCartValue?: number;
+    },
+  ) {
+    return this.settingsService.updateCartRecoverySettings(req.user.workspaceId, dto);
+  }
+
+  // ============================================================
   // WHATSAPP INTEGRATION
   // ============================================================
 

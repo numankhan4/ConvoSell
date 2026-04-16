@@ -74,12 +74,20 @@ model Workspace {
   verificationFinalTimeoutMinutes  Int    @default(1440)
   verificationMaxFollowups         Int    @default(2)
   verificationReadAwareEscalation  Boolean @default(true)
+
+  // Cart recovery policy (workspace-configurable)
+  cartRecoveryEnabled              Boolean @default(true)
+  cartRecoveryFirstReminderHours   Int     @default(24)
+  cartRecoverySecondReminderHours  Int     @default(48)
+  cartRecoveryMaxReminders         Int     @default(2)
+  cartRecoveryMinValue             Float   @default(0)
   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   members              WorkspaceMember[]
   contacts             Contact[]
+  carts                Cart[]
   conversations        Conversation[]
   messages             Message[]
   orders               Order[]
@@ -345,12 +353,41 @@ model Contact {
 
   workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   conversations Conversation[]
+  carts         Cart[]
   orders        Order[]
 
   @@unique([workspaceId, whatsappPhone])
   @@index([workspaceId, whatsappPhone])
   @@index([workspaceId, lastContactAt])
   @@map("contacts")
+}
+
+model Cart {
+  id                  String    @id @default(cuid())
+  workspaceId         String
+  contactId           String
+  externalCartToken   String
+  externalCartId      String?
+  totalAmount         Float
+  currency            String    @default("PKR")
+  items               Json      @default("[]")
+  status              String    @default("abandoned") // abandoned, recovered, expired
+  abandonedAt         DateTime  @default(now())
+  recoveredAt         DateTime?
+  reminderCount       Int       @default(0)
+  lastReminderSentAt  DateTime?
+  recoveryUrl         String?
+  metadata            Json?     @default("{}")
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact   Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, externalCartToken])
+  @@index([workspaceId, status, abandonedAt])
+  @@index([contactId])
+  @@map("carts")
 }
 
 model Conversation {

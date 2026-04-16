@@ -148,6 +148,8 @@ export default function AutomationsPage() {
     const labels: Record<string, string> = {
       'order_created': 'New Order Created',
       'order.created': 'New Order Created',
+      'cart_abandoned': 'Cart Abandoned',
+      'cart.abandoned': 'Cart Abandoned',
       'message_received': 'Message Received',
       'no_reply': 'No Reply After X Hours',
     };
@@ -635,6 +637,14 @@ We're waiting for your confirmation. Please reply:
 
 Thank you!`,
 
+  cart_recovery: `Hi {{customer_name}}! 👋
+
+You left {{product_count}} item(s) in your cart worth {{cart_total}}.
+
+Complete your order here: {{recovery_link}}
+
+Need help? Just reply to this message.`,
+
   all_orders_welcome: `Hi {{customer_name}}! 🎉
 
 Thank you for ordering from us!
@@ -699,6 +709,17 @@ const QUICK_AUTOMATION_PRESETS: QuickAutomationPreset[] = [
     triggerType: 'no_reply',
     paymentMethod: 'cod',
     template: MESSAGE_TEMPLATES.cod_reminder,
+  },
+  {
+    key: 'cart_recovery',
+    icon: '🛒',
+    cardColorClass: 'bg-orange-100',
+    title: 'Cart Recovery',
+    description: 'Recover abandoned carts on WhatsApp',
+    name: 'Cart Recovery (24h)',
+    triggerType: 'cart_abandoned',
+    paymentMethod: '',
+    template: MESSAGE_TEMPLATES.cart_recovery,
   },
   {
     key: 'shipment_notification',
@@ -812,7 +833,7 @@ function CreateAutomationModal({
       return;
     }
 
-    if (formData.triggerType === 'order_created' && !formData.actions[0].template) {
+    if ((formData.triggerType === 'order_created' || formData.triggerType === 'cart_abandoned') && !formData.actions[0].template) {
       toast.error('Please enter message template');
       return;
     }
@@ -961,6 +982,7 @@ function CreateAutomationModal({
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 >
                   <option value="order_created">New Order Created</option>
+                  <option value="cart_abandoned">Cart Abandoned</option>
                   <option value="message_received">Message Received</option>
                   <option value="no_reply">No Reply After X Hours</option>
                 </select>

@@ -7,11 +7,12 @@ import { SettingsTabs } from './components/SettingsTabs';
 import { ShopifySettingsTab } from './components/ShopifySettingsTab';
 import { WhatsAppSettingsTab } from './components/WhatsAppSettingsTab';
 import { OrderVerificationSettingsTab } from './components/OrderVerificationSettingsTab';
+import { CartRecoverySettingsTab } from './components/CartRecoverySettingsTab';
 import { usePermissions } from '@/lib/hooks/usePermissions';
 
 export default function SettingsPage() {
   const { role } = usePermissions();
-  const [activeTab, setActiveTab] = useState<'whatsapp' | 'shopify' | 'verification'>('whatsapp');
+  const [activeTab, setActiveTab] = useState<'whatsapp' | 'shopify' | 'verification' | 'cart-recovery'>('whatsapp');
   const [whatsappConnected, setWhatsappConnected] = useState(false);
   const [shopifyConnected, setShopifyConnected] = useState(false);
 
@@ -37,6 +38,10 @@ export default function SettingsPage() {
 
         {activeTab === 'verification' && (
           <OrderVerificationSettingsTab />
+        )}
+
+        {activeTab === 'cart-recovery' && (
+          <CartRecoverySettingsTab />
         )}
       </div>
     </div>

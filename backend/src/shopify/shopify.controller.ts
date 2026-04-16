@@ -143,6 +143,12 @@ export class ShopifyController {
           await this.shopifyService.handleFulfillmentUpdate(store.workspaceId, body);
           console.log('✅ Order fulfillment processed');
           break;
+        case 'carts/abandoned':
+        case 'checkouts/update':
+          console.log('🛒 Cart abandoned webhook - processing...');
+          await this.shopifyService.handleCartAbandoned(store.workspaceId, body);
+          console.log('✅ Cart abandonment processed');
+          break;
         default:
           console.log(`⚠️ Unhandled webhook topic: ${topic}`);
       }

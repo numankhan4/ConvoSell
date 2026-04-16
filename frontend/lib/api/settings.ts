@@ -29,6 +29,30 @@ export const settingsApi = {
     return response.data;
   },
 
+  // Cart recovery policy
+  getCartRecoverySettings: async (token: string) => {
+    const response = await axios.get(`${API_URL}/settings/cart-recovery`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return response.data;
+  },
+
+  updateCartRecoverySettings: async (
+    token: string,
+    data: {
+      enabled?: boolean;
+      firstReminderHours?: number;
+      secondReminderHours?: number;
+      maxReminders?: number;
+      minCartValue?: number;
+    },
+  ) => {
+    const response = await axios.put(`${API_URL}/settings/cart-recovery`, data, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return response.data;
+  },
+
   // WhatsApp Integration
   getWhatsAppIntegration: async (token: string) => {
     const response = await axios.get(`${API_URL}/settings/whatsapp`, {

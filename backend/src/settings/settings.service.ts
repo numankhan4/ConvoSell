@@ -188,6 +188,117 @@ export class SettingsService {
   }
 
   // ============================================================
+  // CART RECOVERY POLICY
+  // ============================================================
+
+  async getCartRecoverySettings(workspaceId: string) {
+    const rows = await this.prisma.$queryRawUnsafe<any[]>(
+      `SELECT id,
+              "cartRecoveryEnabled",
+              "cartRecoveryFirstReminderHours",
+              "cartRecoverySecondReminderHours",
+              "cartRecoveryMaxReminders",
+              "cartRecoveryMinValue"
+       FROM workspaces
+       WHERE id = $1
+       LIMIT 1`,
+      workspaceId,
+    );
+
+    if (!rows[0]) {
+      throw new NotFoundException('Workspace not found');
+    }
+
+    return {
+      enabled: rows[0].cartRecoveryEnabled,
+      firstReminderHours: rows[0].cartRecoveryFirstReminderHours,
+      secondReminderHours: rows[0].cartRecoverySecondReminderHours,
+      maxReminders: rows[0].cartRecoveryMaxReminders,
+      minCartValue: rows[0].cartRecoveryMinValue,
+    };
+  }
+
+  async updateCartRecoverySettings(
+    workspaceId: string,
+    dto: {
+      enabled?: boolean;
+      firstReminderHours?: number;
+      secondReminderHours?: number;
+      maxReminders?: number;
+      minCartValue?: number;
+    },
+  ) {
+    if (
+      dto.firstReminderHours !== undefined &&
+      (dto.firstReminderHours < 1 || dto.firstReminderHours > 168)
+    ) {
+      throw new BadRequestException('firstReminderHours must be between 1 and 168');
+    }
+
+    if (
+      dto.secondReminderHours !== undefined &&
+      (dto.secondReminderHours < 1 || dto.secondReminderHours > 336)
+    ) {
+      throw new BadRequestException('secondReminderHours must be between 1 and 336');
+    }
+
+    if (dto.maxReminders !== undefined && (dto.maxReminders < 0 || dto.maxReminders > 2)) {
+      throw new BadRequestException('maxReminders must be between 0 and 2');
+    }
+
+    if (dto.minCartValue !== undefined && dto.minCartValue < 0) {
+      throw new BadRequestException('minCartValue cannot be negative');
+    }
+
+    if (
+      dto.firstReminderHours !== undefined &&
+      dto.secondReminderHours !== undefined &&
+      dto.firstReminderHours >= dto.secondReminderHours
+    ) {
+      throw new BadRequestException('firstReminderHours must be lower than secondReminderHours');
+    }
+
+    const rows = await this.prisma.$queryRawUnsafe<any[]>(
+      `UPDATE workspaces
+       SET "cartRecoveryEnabled" = COALESCE($2, "cartRecoveryEnabled"),
+           "cartRecoveryFirstReminderHours" = COALESCE($3, "cartRecoveryFirstReminderHours"),
+           "cartRecoverySecondReminderHours" = COALESCE($4, "cartRecoverySecondReminderHours"),
+           "cartRecoveryMaxReminders" = COALESCE($5, "cartRecoveryMaxReminders"),
+           "cartRecoveryMinValue" = COALESCE($6, "cartRecoveryMinValue"),
+           "updatedAt" = NOW()
+       WHERE id = $1
+       RETURNING id,
+                 "cartRecoveryEnabled",
+                 "cartRecoveryFirstReminderHours",
+                 "cartRecoverySecondReminderHours",
+                 "cartRecoveryMaxReminders",
+                 "cartRecoveryMinValue"`,
+      workspaceId,
+      dto.enabled ?? null,
+      dto.firstReminderHours ?? null,
+      dto.secondReminderHours ?? null,
+      dto.maxReminders ?? null,
+      dto.minCartValue ?? null,
+    );
+
+    if (!rows[0]) {
+      throw new NotFoundException('Workspace not found');
+    }
+
+    if (rows[0].cartRecoveryFirstReminderHours >= rows[0].cartRecoverySecondReminderHours) {
+      throw new BadRequestException('firstReminderHours must be lower than secondReminderHours');
+    }
+
+    return {
+      enabled: rows[0].cartRecoveryEnabled,
+      firstReminderHours: rows[0].cartRecoveryFirstReminderHours,
+      secondReminderHours: rows[0].cartRecoverySecondReminderHours,
+      maxReminders: rows[0].cartRecoveryMaxReminders,
+      minCartValue: rows[0].cartRecoveryMinValue,
+    };
+  }
+
+  // ============================================================
   // WHATSAPP INTEGRATION
   // ============================================================
 
@@ -774,6 +885,7 @@ export class SettingsService {
       'ORDERS_CANCELLED',
       'ORDERS_DELETE',
       'ORDERS_FULFILLED',
+      'CARTS_ABANDONED',
     ];
     const callbackUrl = `${webhookBaseUrl}/api/shopify/webhook`;
 

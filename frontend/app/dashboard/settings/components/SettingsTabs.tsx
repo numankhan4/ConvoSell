@@ -1,6 +1,6 @@
 interface SettingsTabsProps {
-  activeTab: 'whatsapp' | 'shopify' | 'verification';
-  onChange: (tab: 'whatsapp' | 'shopify' | 'verification') => void;
+  activeTab: 'whatsapp' | 'shopify' | 'verification' | 'cart-recovery';
+  onChange: (tab: 'whatsapp' | 'shopify' | 'verification' | 'cart-recovery') => void;
 }
 
 export function SettingsTabs({ activeTab, onChange }: SettingsTabsProps) {
@@ -55,6 +55,23 @@ export function SettingsTabs({ activeTab, onChange }: SettingsTabsProps) {
           <span>Order Verification</span>
         </div>
         {activeTab === 'verification' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary-600"></div>}
+      </button>
+
+      <button
+        onClick={() => onChange('cart-recovery')}
+        className={`flex-1 py-3 sm:py-4 px-3 sm:px-6 text-xs sm:text-sm font-medium transition-colors relative ${
+          activeTab === 'cart-recovery'
+            ? 'text-primary-600 bg-primary-50'
+            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+        }`}
+      >
+        <div className="flex items-center justify-center space-x-1 sm:space-x-2">
+          <svg className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2m0 0L7 13h10l2-8H5.4zM7 13l-1 5h12M9 21a1 1 0 100-2 1 1 0 000 2zm8 0a1 1 0 100-2 1 1 0 000 2z" />
+          </svg>
+          <span>Cart Recovery</span>
+        </div>
+        {activeTab === 'cart-recovery' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary-600"></div>}
       </button>
     </nav>
   );

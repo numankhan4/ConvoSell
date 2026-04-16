@@ -208,6 +208,104 @@ export class ShopifyService {
   }
 
   /**
+   * Handle Shopify abandoned cart webhook
+   */
+  async handleCartAbandoned(workspaceId: string, cartData: any) {
+    const externalCartToken = String(cartData?.token || cartData?.id || '').trim();
+    if (!externalCartToken) {
+      this.logger.warn('Skipping abandoned cart webhook: missing cart token/id');
+      return;
+    }
+
+    const customerEmail = cartData?.email || cartData?.customer?.email;
+    const customerPhone = this.extractPhoneFromCart(cartData);
+
+    let contact = await this.prisma.contact.findFirst({
+      where: {
+        workspaceId,
+        OR: [
+          ...(customerEmail ? [{ email: customerEmail }] : []),
+          ...(customerPhone ? [{ whatsappPhone: customerPhone }] : []),
+        ],
+      },
+    });
+
+    // MVP scope: only recover carts for contacts with valid WhatsApp numbers.
+    if (!contact || !contact.whatsappPhone) {
+      this.logger.log(
+        `Skipping abandoned cart ${externalCartToken}: no recoverable contact with WhatsApp number`,
+      );
+      return;
+    }
+
+    const parsedTotal = Number.parseFloat(String(cartData?.total_price ?? cartData?.totalPrice ?? 0));
+    const totalAmount = Number.isFinite(parsedTotal) ? parsedTotal : 0;
+    const lineItems = Array.isArray(cartData?.line_items)
+      ? cartData.line_items
+      : Array.isArray(cartData?.items)
+      ? cartData.items
+      : [];
+
+    const cart = await this.prisma.cart.upsert({
+      where: {
+        workspaceId_externalCartToken: {
+          workspaceId,
+          externalCartToken,
+        },
+      },
+      update: {
+        contactId: contact.id,
+        externalCartId: cartData?.id ? String(cartData.id) : null,
+        totalAmount,
+        currency: cartData?.currency || 'PKR',
+        items: lineItems,
+        abandonedAt: new Date(),
+        status: 'abandoned',
+        recoveredAt: null,
+        metadata: {
+          sourceTopic: 'carts/abandoned',
+          customerEmail,
+        },
+      },
+      create: {
+        workspaceId,
+        contactId: contact.id,
+        externalCartToken,
+        externalCartId: cartData?.id ? String(cartData.id) : null,
+        totalAmount,
+        currency: cartData?.currency || 'PKR',
+        items: lineItems,
+        abandonedAt: new Date(),
+        status: 'abandoned',
+        recoveryUrl: cartData?.abandoned_checkout_url || cartData?.checkout_url || null,
+        metadata: {
+          sourceTopic: 'carts/abandoned',
+          customerEmail,
+        },
+      },
+    });
+
+    await this.prisma.outboxEvent.create({
+      data: {
+        workspaceId,
+        eventType: 'cart.abandoned',
+        aggregateId: cart.id,
+        payload: {
+          workspaceId,
+          cartId: cart.id,
+          contactId: contact.id,
+          totalAmount: cart.totalAmount,
+          currency: cart.currency,
+          abandonedAt: cart.abandonedAt,
+        },
+      },
+    });
+
+    this.logger.log(`Cart abandoned outbox event created: ${cart.id}`);
+    return cart;
+  }
+
+  /**
    * Sync contact details from Shopify order update payload
    */
   private async syncContactFromOrder(workspaceId: string, orderData: any) {
@@ -525,6 +623,27 @@ export class ShopifyService {
       orderData.customer?.phone,
       orderData.shipping_address?.phone,
       orderData.billing_address?.phone,
+    ];
+
+    for (const phone of phoneFields) {
+      const normalized = this.normalizePhone(phone);
+      if (normalized) {
+        return normalized;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Extract and normalize phone from Shopify cart/checkout payload.
+   */
+  private extractPhoneFromCart(cartData: any): string | null {
+    const phoneFields = [
+      cartData?.phone,
+      cartData?.customer?.phone,
+      cartData?.shipping_address?.phone,
+      cartData?.billing_address?.phone,
     ];
 
     for (const phone of phoneFields) {

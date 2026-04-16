@@ -5,6 +5,7 @@ import { processOrderEvent } from './processors/order-processor';
 import { processSendMessage } from './processors/message-processor';
 import { healthCheckProcessor } from './processors/health-check-processor';
 import { processOrderVerificationEscalations } from './processors/order-verification-processor';
+import { processCartRecoveryEscalations } from './processors/cart-recovery-processor';
 
 // Load environment variables
 dotenv.config();
@@ -150,6 +151,15 @@ const verificationEscalationInterval = setInterval(async () => {
   }
 }, 5 * 60 * 1000);
 
+// Run cart recovery escalation checks every 5 minutes
+const cartRecoveryEscalationInterval = setInterval(async () => {
+  try {
+    await processCartRecoveryEscalations(prisma);
+  } catch (error) {
+    console.error('Cart recovery escalation cycle failed:', error);
+  }
+}, 5 * 60 * 1000);
+
 // Run initial health check after 30 seconds
 setTimeout(async () => {
   try {
@@ -157,6 +167,8 @@ setTimeout(async () => {
     await healthCheckProcessor(prisma);
     console.log('Running initial order verification escalation check...');
     await processOrderVerificationEscalations(prisma);
+    console.log('Running initial cart recovery escalation check...');
+    await processCartRecoveryEscalations(prisma);
   } catch (error) {
     console.error('Initial health check failed:', error);
   }
@@ -167,6 +179,7 @@ process.on('SIGINT', async () => {
   console.log('Shutting down workers...');
   clearInterval(healthCheckInterval);
   clearInterval(verificationEscalationInterval);
+  clearInterval(cartRecoveryEscalationInterval);
   await outboxWorker.close();
   await whatsappWorker.close();
   await prisma.$disconnect();
@@ -177,3 +190,4 @@ console.log('🚀 Worker started');
 console.log('📦 Listening to queues: outbox, whatsapp');
 console.log('🏥 Health checks will run every hour');
 console.log('⏱️ Order verification escalation checks run every 5 minutes');
+console.log('🛒 Cart recovery escalation checks run every 5 minutes');

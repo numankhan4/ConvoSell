@@ -79,7 +79,11 @@ export class AutomationsService {
       const trigger = automation.trigger as any;
 
       // Check if trigger matches event
-      if (trigger.type === eventType || trigger.type === 'order_created' && eventType === 'order.created') {
+      if (
+        trigger.type === eventType ||
+        trigger.type === 'order_created' && eventType === 'order.created' ||
+        trigger.type === 'cart_abandoned' && eventType === 'cart.abandoned'
+      ) {
         // Check conditions
         if (this.checkConditions(trigger.conditions, payload)) {
           await this.executeActions(workspaceId, automation.actions as any[], payload);
