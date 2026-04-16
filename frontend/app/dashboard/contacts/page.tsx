@@ -16,6 +16,7 @@ export default function ContactsPage() {
   const [exporting, setExporting] = useState<'csv' | 'json' | null>(null);
   const [pendingExportFormat, setPendingExportFormat] = useState<'csv' | 'json' | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [selectedContact, setSelectedContact] = useState<any>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
@@ -32,8 +33,16 @@ export default function ContactsPage() {
   });
 
   useEffect(() => {
-    loadContacts();
+    const debounceTimer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery.trim());
+    }, 300);
+
+    return () => clearTimeout(debounceTimer);
   }, [searchQuery]);
+
+  useEffect(() => {
+    loadContacts();
+  }, [debouncedSearchQuery]);
 
   useEffect(() => {
     loadWorkspaceCurrency();
@@ -51,7 +60,7 @@ export default function ContactsPage() {
   const loadContacts = async () => {
     setLoading(true);
     try {
-      const response = await crmApi.getContacts({ search: searchQuery || undefined });
+      const response = await crmApi.getContacts({ search: debouncedSearchQuery || undefined });
       setContacts(response.data.data || []);
     } catch (error) {
       console.error('Failed to load contacts', error);

@@ -39,6 +39,7 @@ export function DashboardView({
   const confirmationRate = topMetricsValue(topMetricsLookup(dashboard.smartMetrics, 'confirmation-rate'));
   const responseRate = topMetricsValue(topMetricsLookup(dashboard.smartMetrics, 'response-rate'));
   const fraudRate = topMetricsValue(topMetricsLookup(dashboard.smartMetrics, 'fraud-detection-rate'));
+  const recoveryRate = topMetricsValue(topMetricsLookup(dashboard.smartMetrics, 'recovery-rate'));
 
   return (
     <div className="space-y-8">
@@ -68,6 +69,7 @@ export function DashboardView({
                     key={range}
                     type="button"
                     onClick={() => onRangeChange(range)}
+                    aria-pressed={selectedRange === range}
                     className={`rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition ${
                       selectedRange === range
                         ? 'bg-white text-neutral-900'
@@ -85,6 +87,7 @@ export function DashboardView({
                 <button
                   type="button"
                   onClick={onRefresh}
+                  disabled={isRefreshing}
                   className="inline-flex min-h-[36px] items-center justify-center rounded-lg border border-white/30 bg-white/10 px-3 text-xs font-semibold text-white hover:bg-white/20"
                 >
                   {isRefreshing ? 'Refreshing...' : 'Refresh'}
@@ -118,6 +121,17 @@ export function DashboardView({
           <p className="mt-1 text-xs text-primary-800">Recovered value as a share of expected revenue.</p>
         </article>
       </section>
+
+      {dashboard.highlights.length > 0 && (
+        <section className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          {dashboard.highlights.map((highlight) => (
+            <article key={highlight.id} className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+              <p className="text-sm font-semibold text-neutral-900">{highlight.title}</p>
+              <p className="mt-1.5 text-sm text-neutral-600">{highlight.subtitle}</p>
+            </article>
+          ))}
+        </section>
+      )}
 
       {dashboard.mode === 'empty' && (
         <section className="rounded-2xl border border-primary-200 bg-primary-50 p-5">
@@ -207,10 +221,11 @@ export function DashboardView({
           <h2 className="text-lg font-semibold text-neutral-900">System Health</h2>
           <p className="text-sm text-neutral-600">Quick view of verification performance and setup readiness.</p>
 
-          <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
             <HealthMetric label="Confirmation" value={confirmationRate} tone="success" />
             <HealthMetric label="Response" value={responseRate} tone="primary" />
             <HealthMetric label="Fraud Catch" value={fraudRate} tone="danger" />
+            <HealthMetric label="Recovery" value={recoveryRate} tone="success" />
           </div>
 
           <div className="mt-4 h-2.5 w-full rounded-full bg-neutral-200">

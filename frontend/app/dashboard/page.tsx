@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ordersApi, settingsApi } from '@/lib/api';
 import { usePermissions } from '@/lib/hooks/usePermissions';
 import { normalizeCurrencyCode } from '@/lib/currency';
@@ -14,9 +14,11 @@ export default function DashboardPage() {
   const [selectedRange, setSelectedRange] = useState<DashboardRange>('7d');
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const requestIdRef = useRef(0);
+  const [refreshClockTick, setRefreshClockTick] = useState(0);
 
   const loadDashboard = useCallback(async ({ withLoading = false, silentRefresh = false }: { withLoading?: boolean; silentRefresh?: boolean }) => {
-    let resolvedCurrency = 'PKR';
+    const requestId = ++requestIdRef.current;
 
     if (withLoading) {
       setLoading(true);
@@ -26,25 +28,33 @@ export default function DashboardPage() {
       setIsRefreshing(true);
     }
 
-    try {
-      const currencyResponse = await settingsApi.getWorkspaceCurrency();
-      resolvedCurrency = normalizeCurrencyCode(currencyResponse.data?.currency || 'PKR');
-    } catch (error) {
-      console.error('Failed to load workspace currency', error);
+    const [currencyResult, statsResult] = await Promise.allSettled([
+      settingsApi.getWorkspaceCurrency(),
+      ordersApi.getStatistics({ period: selectedRange }),
+    ]);
+
+    if (requestId !== requestIdRef.current) {
+      return;
     }
 
-    try {
-      const statsResponse = await ordersApi.getStatistics({ period: selectedRange });
-      const stats = { ...(statsResponse.data || {}), period: selectedRange };
+    let resolvedCurrency = 'PKR';
+    if (currencyResult.status === 'fulfilled') {
+      resolvedCurrency = normalizeCurrencyCode(currencyResult.value.data?.currency || 'PKR');
+    } else {
+      console.error('Failed to load workspace currency', currencyResult.reason);
+    }
+
+    if (statsResult.status === 'fulfilled') {
+      const stats = { ...(statsResult.value.data || {}), period: selectedRange };
       setDashboard(buildDashboardModel(stats, resolvedCurrency));
       setLastUpdatedAt(new Date());
-    } catch (error) {
-      console.error('Failed to load dashboard data', error);
+    } else {
+      console.error('Failed to load dashboard data', statsResult.reason);
       setDashboard(buildDashboardModel({ period: selectedRange }, resolvedCurrency));
-    } finally {
-      setLoading(false);
-      setIsRefreshing(false);
     }
+
+    setLoading(false);
+    setIsRefreshing(false);
   }, [selectedRange]);
 
   useEffect(() => {
@@ -58,6 +68,14 @@ export default function DashboardPage() {
 
     return () => clearInterval(timer);
   }, [loadDashboard]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setRefreshClockTick((tick) => tick + 1);
+    }, 30000);
+
+    return () => clearInterval(timer);
+  }, []);
 
   if (loading) {
     return <DashboardLoading />;
@@ -77,15 +95,15 @@ export default function DashboardPage() {
         void loadDashboard({ silentRefresh: true });
       }}
       isRefreshing={isRefreshing}
-      lastUpdatedLabel={formatUpdatedAt(lastUpdatedAt)}
+      lastUpdatedLabel={formatUpdatedAt(lastUpdatedAt, refreshClockTick)}
     />
   );
 }
 
-function formatUpdatedAt(date: Date | null) {
+function formatUpdatedAt(date: Date | null, tick: number) {
   if (!date) return 'Not synced yet';
 
-  const now = Date.now();
+  const now = Date.now() + tick * 0;
   const deltaSec = Math.max(0, Math.round((now - date.getTime()) / 1000));
 
   if (deltaSec < 10) return 'Updated just now';

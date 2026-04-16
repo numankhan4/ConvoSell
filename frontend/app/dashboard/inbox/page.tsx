@@ -32,8 +32,6 @@ export default function InboxPage() {
   };
 
   useEffect(() => {
-    // Scroll instantly on initial load, smooth for updates
-    const isInitialLoad = messages.length > 0;
     scrollToBottom(false); // Always instant scroll
   }, [messages]);
 

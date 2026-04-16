@@ -17,6 +17,7 @@ export default function OrdersPage() {
   const [pendingExportFormat, setPendingExportFormat] = useState<'csv' | 'json' | null>(null);
   const [statusFilter, setStatusFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [statistics, setStatistics] = useState<any>(null);
   const [automations, setAutomations] = useState<any[]>([]);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -78,6 +79,7 @@ export default function OrdersPage() {
   // Debounced search effect
   useEffect(() => {
     const debounceTimer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery.trim());
       setCurrentPage(1); // Reset to first page on search
     }, 300); // 300ms debounce
 
@@ -102,7 +104,7 @@ export default function OrdersPage() {
     // Poll less aggressively and only while tab is visible.
     pollingIntervalRef.current = setInterval(() => {
       if (typeof document !== 'undefined' && document.hidden) return;
-      loadOrders();
+      loadOrders(true);
       loadStatistics();
     }, 15000);
 
@@ -111,18 +113,16 @@ export default function OrdersPage() {
         clearInterval(pollingIntervalRef.current);
       }
     };
-  }, [statusFilter, currentPage, itemsPerPage, searchQuery]);
+  }, [statusFilter, currentPage, itemsPerPage, debouncedSearchQuery]);
 
-  const loadOrders = async () => {
+  const loadOrders = async (silent = false) => {
     try {
       const params: any = {
         page: currentPage,
         limit: itemsPerPage,
       };
       if (statusFilter !== 'all') params.status = statusFilter;
-      if (searchQuery.trim()) params.search = searchQuery.trim();
-      
-      console.log('📊 Loading orders with params:', params);
+      if (debouncedSearchQuery) params.search = debouncedSearchQuery;
       
       const response = await ordersApi.getOrders(params);
       const nextOrders = response.data.data || [];
@@ -148,11 +148,11 @@ export default function OrdersPage() {
 
       setFraudSummaries(persistedSummaries);
       await loadFraudSummaries(nextOrders, persistedSummaries);
-      
-      console.log('✅ Loaded', nextOrders.length, 'orders, total:', nextMeta?.total || 0);
     } catch (error) {
       console.error('Failed to load orders', error);
-      toast.error('Unable to load orders. Please refresh and try again.');
+      if (!silent) {
+        toast.error('Unable to load orders. Please refresh and try again.');
+      }
     } finally {
       setLoading(false);
     }

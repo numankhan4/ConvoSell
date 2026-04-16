@@ -77,11 +77,6 @@ const pct = (numerator: number, denominator: number) => {
   return Math.round((numerator / denominator) * 100);
 };
 
-const trendText = (value: number, subject: string) => {
-  if (value <= 0) return `No ${subject} trend yet`;
-  return `${subject} baseline building`;
-};
-
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 function makeSparklinePoints(value: number, seed: number, trend: 'up' | 'down' | 'flat') {
@@ -119,8 +114,9 @@ export function buildDashboardModel(stats: any, currency: string): DashboardMode
   const hasData = totalOrders > 0;
   const confirmationRate = pct(confirmedOrders, totalOrders);
   const fraudDetectionRate = pct(highRiskOrders, totalOrders);
+  const pendingRate = pct(pendingOrders, totalOrders);
   const responseRate = pct(confirmedOrders + Math.round(pendingOrders * 0.35), totalOrders);
-  const revenueRecoveryRate = pct(recoveredRevenue, Math.max(expectedRevenue, 1));
+  const revenueRecoveryRate = clamp(pct(recoveredRevenue, Math.max(expectedRevenue, 1)), 0, 100);
 
   const actionCenter: DashboardModel['actionCenter'] = [];
 
@@ -176,6 +172,8 @@ export function buildDashboardModel(stats: any, currency: string): DashboardMode
       impactValue: 0,
     });
   }
+
+  actionCenter.sort((a, b) => b.impactValue - a.impactValue);
 
   const activityFeed: DashboardModel['activityFeed'] = [];
 
@@ -289,25 +287,37 @@ export function buildDashboardModel(stats: any, currency: string): DashboardMode
     kpis: {
       revenueSaved: {
         value: recoveredRevenue,
-        change: trendText(recoveredRevenue, 'Revenue saved'),
+        change:
+          recoveredRevenue > 0
+            ? `${revenueRecoveryRate}% of expected revenue recovered`
+            : 'No recovered revenue yet',
         description: 'Estimated recoverable value from verified COD orders',
         trendPoints: makeSparklinePoints(recoveredRevenue, 1.2, 'up'),
       },
       highRiskOrders: {
         value: highRiskOrders,
-        change: trendText(highRiskOrders, 'Risk'),
+        change:
+          highRiskOrders > 0
+            ? `${fraudDetectionRate}% of orders need risk review`
+            : 'No high-risk orders detected',
         description: 'Orders requiring manual verification before dispatch',
         trendPoints: makeSparklinePoints(highRiskOrders, 2.3, 'down'),
       },
       confirmedOrders: {
         value: confirmedOrders,
-        change: trendText(confirmedOrders, 'Confirmation'),
+        change:
+          confirmedOrders > 0
+            ? `${confirmationRate}% confirmation rate`
+            : 'No confirmations yet',
         description: 'Customers that confirmed intent to receive orders',
         trendPoints: makeSparklinePoints(confirmedOrders, 3.1, 'up'),
       },
       pendingVerification: {
         value: pendingOrders,
-        change: trendText(pendingOrders, 'Pending queue'),
+        change:
+          pendingOrders > 0
+            ? `${pendingRate}% of orders are awaiting response`
+            : 'No pending verification backlog',
         description: 'Orders waiting for customer verification response',
         trendPoints: makeSparklinePoints(pendingOrders, 4.4, 'flat'),
       },
