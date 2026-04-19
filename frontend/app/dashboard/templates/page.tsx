@@ -30,6 +30,22 @@ interface QuotaStatus {
   subscriptionStatus: string;
 }
 
+interface BillingPlan {
+  plan: 'free' | 'starter' | 'pro' | 'business' | 'enterprise';
+  displayName: string;
+  monthlyPrice: number;
+  yearlyPrice: number;
+  templateMessagesLimit: number;
+  maxContacts: number;
+  maxMembers: number;
+}
+
+interface BillingPlansResponse {
+  currentPlan: string;
+  plans: BillingPlan[];
+  disclaimer?: string;
+}
+
 type TemplateDetail = Template & {
   rejectionReason?: string | null;
   variables?: Array<{ name: string; example: string }> | null;
@@ -65,6 +81,11 @@ export default function TemplatesPage() {
   const [isViewLoading, setIsViewLoading] = useState(false);
   const [viewingTemplateId, setViewingTemplateId] = useState<string | null>(null);
   const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [billingPlans, setBillingPlans] = useState<BillingPlansResponse | null>(null);
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingError, setBillingError] = useState<string | null>(null);
+  const [upgradingPlan, setUpgradingPlan] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -75,8 +96,8 @@ export default function TemplatesPage() {
       setIsLoading(true);
       setLoadError(null);
       const [templatesRes, quotaRes] = await Promise.all([
-        api.get('/api/templates'),
-        api.get('/api/templates/quota/status'),
+        api.get('/templates'),
+        api.get('/templates/quota/status'),
       ]);
       setTemplates(templatesRes.data);
       setQuota(quotaRes.data);
@@ -113,7 +134,7 @@ export default function TemplatesPage() {
     setIsViewLoading(true);
     setViewingTemplateId(templateId);
     try {
-      const response = await api.get(`/api/templates/${templateId}`);
+      const response = await api.get(`/templates/${templateId}`);
       setSelectedTemplate(response.data);
     } catch (error: any) {
       const message = error.response?.data?.message || 'Failed to load template details';
@@ -135,7 +156,7 @@ export default function TemplatesPage() {
 
     setDeletingTemplateId(template.id);
     try {
-      await api.delete(`/api/templates/${template.id}`);
+      await api.delete(`/templates/${template.id}`);
       toast.success('Template deleted successfully');
       await loadData();
       if (selectedTemplate?.id === template.id) {
@@ -146,6 +167,40 @@ export default function TemplatesPage() {
       toast.error(typeof message === 'string' ? message : 'Failed to delete template');
     } finally {
       setDeletingTemplateId(null);
+    }
+  };
+
+  const openUpgradeModal = async () => {
+    setShowUpgradeModal(true);
+    setBillingError(null);
+    setBillingLoading(true);
+    try {
+      const response = await api.get('/billing/plans');
+      setBillingPlans(response.data);
+    } catch (error: any) {
+      const message = error.response?.data?.message || 'Failed to load billing plans';
+      setBillingError(typeof message === 'string' ? message : 'Failed to load billing plans');
+      toast.error(typeof message === 'string' ? message : 'Failed to load billing plans');
+    } finally {
+      setBillingLoading(false);
+    }
+  };
+
+  const handleUpgradePlan = async (targetPlan: BillingPlan['plan']) => {
+    setUpgradingPlan(targetPlan);
+    try {
+      const response = await api.post('/billing/upgrade', {
+        targetPlan,
+        billingCycle: 'monthly',
+      });
+      toast.success(response.data?.message || 'Plan upgraded successfully');
+      setShowUpgradeModal(false);
+      await loadData();
+    } catch (error: any) {
+      const message = error.response?.data?.message || 'Failed to upgrade plan';
+      toast.error(typeof message === 'string' ? message : 'Failed to upgrade plan');
+    } finally {
+      setUpgradingPlan(null);
     }
   };
 
@@ -272,11 +327,16 @@ export default function TemplatesPage() {
                 )}
               </div>
               {quota.plan === 'free' && (
-                <div className="ml-6">
-                  <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
-                    Upgrade Plan
-                  </button>
-                </div>
+                <PermissionGate permission={Permissions.WORKSPACE_BILLING}>
+                  <div className="ml-6">
+                    <button
+                      onClick={openUpgradeModal}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
+                    >
+                      Upgrade Plan
+                    </button>
+                  </div>
+                </PermissionGate>
               )}
             </div>
           </div>
@@ -411,6 +471,92 @@ export default function TemplatesPage() {
           onClose={() => setSelectedTemplate(null)}
         />
       )}
+
+      {showUpgradeModal && (
+        <UpgradePlanModal
+          onClose={() => setShowUpgradeModal(false)}
+          loading={billingLoading}
+          error={billingError}
+          plans={billingPlans}
+          upgradingPlan={upgradingPlan}
+          onUpgrade={handleUpgradePlan}
+        />
+      )}
+    </div>
+  );
+}
+
+function UpgradePlanModal({
+  onClose,
+  loading,
+  error,
+  plans,
+  upgradingPlan,
+  onUpgrade,
+}: {
+  onClose: () => void;
+  loading: boolean;
+  error: string | null;
+  plans: BillingPlansResponse | null;
+  upgradingPlan: string | null;
+  onUpgrade: (targetPlan: BillingPlan['plan']) => Promise<void>;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-xl bg-white shadow-xl">
+        <div className="flex items-start justify-between border-b border-slate-200 px-6 py-4">
+          <div>
+            <h2 className="text-xl font-semibold text-slate-900">Upgrade Your Plan</h2>
+            <p className="mt-1 text-sm text-slate-600">Choose a plan to unlock template messaging quota.</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+          >
+            Close
+          </button>
+        </div>
+
+        <div className="space-y-4 px-6 py-5">
+          {loading && <p className="text-sm text-slate-600">Loading plans...</p>}
+          {error && <p className="rounded-lg border border-danger-200 bg-danger-50 px-3 py-2 text-sm text-danger-800">{error}</p>}
+
+          {!loading && plans && (
+            <>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {plans.plans
+                  .filter((plan) => plan.plan !== 'free')
+                  .map((plan) => {
+                    const isCurrent = plans.currentPlan === plan.plan;
+                    const isUpgrading = upgradingPlan === plan.plan;
+                    return (
+                      <div key={plan.plan} className={`rounded-xl border p-4 ${isCurrent ? 'border-primary-300 bg-primary-50' : 'border-slate-200 bg-white'}`}>
+                        <h3 className="text-lg font-semibold text-slate-900">{plan.displayName}</h3>
+                        <p className="mt-1 text-2xl font-bold text-slate-900">
+                          PKR {plan.monthlyPrice.toLocaleString()}
+                          <span className="ml-1 text-sm font-medium text-slate-600">/month</span>
+                        </p>
+                        <ul className="mt-3 space-y-1 text-sm text-slate-700">
+                          <li>Template quota: {plan.templateMessagesLimit < 0 ? 'Unlimited' : plan.templateMessagesLimit}</li>
+                          <li>Max contacts: {plan.maxContacts < 0 ? 'Unlimited' : plan.maxContacts.toLocaleString()}</li>
+                          <li>Max members: {plan.maxMembers < 0 ? 'Unlimited' : plan.maxMembers.toLocaleString()}</li>
+                        </ul>
+                        <button
+                          onClick={() => onUpgrade(plan.plan)}
+                          disabled={isCurrent || Boolean(upgradingPlan)}
+                          className="mt-4 w-full rounded-lg bg-primary-600 px-3 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {isCurrent ? 'Current Plan' : isUpgrading ? 'Upgrading...' : `Upgrade to ${plan.displayName}`}
+                        </button>
+                      </div>
+                    );
+                  })}
+              </div>
+              {plans.disclaimer && <p className="text-xs text-slate-500">{plans.disclaimer}</p>}
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -592,7 +738,7 @@ function CreateTemplateModal({
 
     setSaving(true);
     try {
-      await api.post('/api/templates', payload);
+      await api.post('/templates', payload);
       toast.success('Template submitted to Meta for approval');
       await onCreated();
     } catch (error: any) {

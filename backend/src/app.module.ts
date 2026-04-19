@@ -21,6 +21,7 @@ import { SettingsModule } from './settings/settings.module';
 import { TemplatesModule } from './templates/templates.module';
 import { TestDataModule } from './test-data/test-data.module';
 import { FraudModule } from './fraud/fraud.module';
+import { BillingModule } from './billing/billing.module';
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { FraudModule } from './fraud/fraud.module';
     TemplatesModule,
     TestDataModule,
     FraudModule,
+    BillingModule,
   ],
 })
 export class AppModule {}

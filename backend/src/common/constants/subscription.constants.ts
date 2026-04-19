@@ -39,6 +39,32 @@ export const WHATSAPP_COSTS = {
 };
 
 /**
+ * Resolve WhatsApp costs at runtime with optional env overrides.
+ * This keeps billing resilient when Meta pricing changes.
+ */
+export function resolveWhatsappCosts() {
+  const parseCost = (value: string | undefined, fallback: number) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+  };
+
+  const utility = parseCost(process.env.WHATSAPP_COST_UTILITY_TEMPLATE_PKR, WHATSAPP_COSTS.UTILITY_TEMPLATE);
+  const marketing = parseCost(process.env.WHATSAPP_COST_MARKETING_TEMPLATE_PKR, WHATSAPP_COSTS.MARKETING_TEMPLATE);
+  const session = parseCost(process.env.WHATSAPP_COST_SESSION_MESSAGE_PKR, WHATSAPP_COSTS.SESSION_MESSAGE);
+  const average = parseCost(
+    process.env.WHATSAPP_COST_AVERAGE_TEMPLATE_PKR,
+    Math.round((utility + marketing) / 2),
+  );
+
+  return {
+    UTILITY_TEMPLATE: utility,
+    MARKETING_TEMPLATE: marketing,
+    SESSION_MESSAGE: session,
+    AVERAGE_TEMPLATE_COST: average,
+  };
+}
+
+/**
  * Subscription plan configurations
  */
 export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, PlanFeatures> = {
@@ -152,6 +178,7 @@ export function getPlanFeatures(plan: SubscriptionPlan): PlanFeatures {
  */
 export function calculatePlanMargins(plan: SubscriptionPlan, actualUsage: number = 0.5) {
   const features = SUBSCRIPTION_PLANS[plan];
+  const costs = resolveWhatsappCosts();
   
   if (plan === SubscriptionPlan.FREE || plan === SubscriptionPlan.ENTERPRISE) {
     return {
@@ -163,7 +190,7 @@ export function calculatePlanMargins(plan: SubscriptionPlan, actualUsage: number
   }
 
   const messagesUsed = features.templateMessagesLimit * actualUsage;
-  const cost = messagesUsed * WHATSAPP_COSTS.AVERAGE_TEMPLATE_COST;
+  const cost = messagesUsed * costs.AVERAGE_TEMPLATE_COST;
   const revenue = features.monthlyPrice;
   const profit = revenue - cost;
   const margin = ((profit / revenue) * 100).toFixed(1);

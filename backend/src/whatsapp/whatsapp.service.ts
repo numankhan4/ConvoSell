@@ -4,7 +4,11 @@ import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { ShopifyService } from '../shopify/shopify.service';
-import { SubscriptionPlan, canSendTemplateMessage, WHATSAPP_COSTS } from '../common/constants/subscription.constants';
+import {
+  SubscriptionPlan,
+  canSendTemplateMessage,
+  resolveWhatsappCosts,
+} from '../common/constants/subscription.constants';
 import { decryptSecret } from '../common/utils/crypto.util';
 
 interface SendMessageDto {
@@ -299,9 +303,10 @@ export class WhatsAppService {
     }
 
     // 5. Calculate estimated cost
-    const estimatedCost = template.category === 'MARKETING' 
-      ? WHATSAPP_COSTS.MARKETING_TEMPLATE 
-      : WHATSAPP_COSTS.UTILITY_TEMPLATE;
+    const costs = resolveWhatsappCosts();
+    const estimatedCost = template.category === 'MARKETING'
+      ? costs.MARKETING_TEMPLATE
+      : costs.UTILITY_TEMPLATE;
 
     try {
       // 6. Send the template message via WhatsApp API
@@ -1274,6 +1279,9 @@ export class WhatsAppService {
 
     for (const status of statuses) {
       this.logger.log(`Message status update: ${status.id} -> ${status.status}`);
+      const statusAt = status.timestamp
+        ? new Date(parseInt(status.timestamp, 10) * 1000)
+        : new Date();
 
       // Update message status
       const message = await this.prisma.message.findUnique({
@@ -1287,9 +1295,9 @@ export class WhatsAppService {
         };
 
         if (status.status === 'delivered') {
-          updateData.deliveredAt = new Date(parseInt(status.timestamp) * 1000);
+          updateData.deliveredAt = statusAt;
         } else if (status.status === 'read') {
-          updateData.readAt = new Date(parseInt(status.timestamp) * 1000);
+          updateData.readAt = statusAt;
         } else if (status.status === 'failed') {
           updateData.errorCode = status.errors?.[0]?.code?.toString();
           updateData.errorMessage = status.errors?.[0]?.title;
@@ -1298,6 +1306,59 @@ export class WhatsAppService {
         await this.prisma.message.update({
           where: { id: message.id },
           data: updateData,
+        });
+      }
+
+      // Update template message status and template analytics counters.
+      const templateMessage = await this.prisma.templateMessage.findUnique({
+        where: { whatsappMessageId: status.id },
+      });
+
+      if (!templateMessage) {
+        continue;
+      }
+
+      const templateUpdateData: any = {
+        status: status.status,
+      };
+
+      let incrementDelivered = 0;
+      let incrementRead = 0;
+
+      if (status.status === 'delivered') {
+        templateUpdateData.deliveredAt = statusAt;
+        if (!templateMessage.deliveredAt) {
+          incrementDelivered = 1;
+        }
+      } else if (status.status === 'read') {
+        templateUpdateData.readAt = statusAt;
+        if (!templateMessage.readAt) {
+          incrementRead = 1;
+        }
+
+        // Some providers may skip explicit delivered webhooks before read.
+        if (!templateMessage.deliveredAt) {
+          templateUpdateData.deliveredAt = statusAt;
+          incrementDelivered = 1;
+        }
+      } else if (status.status === 'failed') {
+        templateUpdateData.failedAt = statusAt;
+        templateUpdateData.errorCode = status.errors?.[0]?.code?.toString();
+        templateUpdateData.errorMessage = status.errors?.[0]?.title;
+      }
+
+      await this.prisma.templateMessage.update({
+        where: { id: templateMessage.id },
+        data: templateUpdateData,
+      });
+
+      if (incrementDelivered > 0 || incrementRead > 0) {
+        await this.prisma.whatsAppMessageTemplate.update({
+          where: { id: templateMessage.templateId },
+          data: {
+            ...(incrementDelivered > 0 ? { deliveredCount: { increment: incrementDelivered } } : {}),
+            ...(incrementRead > 0 ? { readCount: { increment: incrementRead } } : {}),
+          },
         });
       }
     }
