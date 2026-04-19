@@ -9,7 +9,8 @@ import {
   Database, 
   Shield,
   Plug,
-  Beaker
+  Beaker,
+  CreditCard
 } from 'lucide-react';
 
 export default function SettingsNav() {
@@ -36,6 +37,13 @@ export default function SettingsNav() {
       icon: Shield,
       description: 'Roles & access control',
       permission: 'users:view_all',
+    },
+    {
+      href: '/dashboard/settings/billing',
+      label: 'Billing',
+      icon: CreditCard,
+      description: 'Plan & quota management',
+      permission: 'workspace:billing',
     },
     {
       href: '/dashboard/settings/test-data',
