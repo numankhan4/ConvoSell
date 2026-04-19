@@ -35,6 +35,7 @@ export default function TemplatesPage() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [quota, setQuota] = useState<QuotaStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
   useEffect(() => {
@@ -44,6 +45,7 @@ export default function TemplatesPage() {
   const loadData = async () => {
     try {
       setIsLoading(true);
+      setLoadError(null);
       const [templatesRes, quotaRes] = await Promise.all([
         api.get('/api/templates'),
         api.get('/api/templates/quota/status'),
@@ -51,6 +53,7 @@ export default function TemplatesPage() {
       setTemplates(templatesRes.data);
       setQuota(quotaRes.data);
     } catch (error: any) {
+      setLoadError('We could not load your template library. Please retry.');
       toast.error('Failed to load templates');
       console.error(error);
     } finally {
@@ -80,20 +83,32 @@ export default function TemplatesPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <div className="h-8 w-64 rounded bg-slate-200 animate-pulse" />
+          <div className="h-4 w-96 rounded bg-slate-100 animate-pulse" />
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-6 space-y-3">
+          <div className="h-5 w-40 rounded bg-slate-200 animate-pulse" />
+          <div className="h-20 rounded bg-slate-100 animate-pulse" />
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-6 space-y-3">
+          <div className="h-5 w-48 rounded bg-slate-200 animate-pulse" />
+          <div className="h-16 rounded bg-slate-100 animate-pulse" />
+          <div className="h-16 rounded bg-slate-100 animate-pulse" />
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="space-y-6 sm:space-y-8">
       {/* Header with Quota Status */}
-      <div className="mb-8">
+      <div>
         <div className="flex items-center justify-between mb-4">
           <div>
             <div className="flex items-center gap-3 mb-1">
-              <h1 className="text-3xl font-bold text-gray-900">Message Templates</h1>
+              <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Message Templates</h1>
               <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${
                 role === 'owner' ? 'bg-purple-100 text-purple-800' :
                 role === 'admin' ? 'bg-blue-100 text-blue-800' :
@@ -104,14 +119,14 @@ export default function TemplatesPage() {
                 {role}
               </span>
             </div>
-            <p className="text-sm text-gray-500">
-              Create and manage WhatsApp message templates for automated outreach
+            <p className="text-sm sm:text-base text-slate-600">
+              Manage your approved WhatsApp templates for automations and post-window outreach.
             </p>
           </div>
           <PermissionGate permission={Permissions.TEMPLATES_CREATE}>
             <button
               onClick={() => setShowCreateModal(true)}
-              className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
             >
             <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -121,18 +136,32 @@ export default function TemplatesPage() {
         </PermissionGate>
         </div>
 
+        {loadError && (
+          <div className="mb-4 rounded-xl border border-danger-200 bg-danger-50 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-sm text-danger-800">{loadError}</p>
+              <button
+                onClick={loadData}
+                className="rounded-lg border border-danger-300 bg-white px-3 py-1.5 text-xs font-semibold text-danger-800 hover:bg-danger-100"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Quota Card */}
         {quota && (
-          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-6">
+          <div className="bg-gradient-to-r from-primary-50 to-blue-50 border border-primary-200 rounded-xl p-6">
             <div className="flex items-center justify-between">
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-2">
-                  <h3 className="text-lg font-semibold text-gray-900">Monthly Quota</h3>
+                  <h3 className="text-lg font-semibold text-slate-900">Monthly Template Quota</h3>
                   <span className={`px-2 py-1 text-xs rounded-full font-medium ${getPlanBadge(quota.plan)}`}>
                     {quota.plan.toUpperCase()}
                   </span>
                 </div>
-                <div className="flex items-center gap-6">
+                <div className="flex flex-wrap items-center gap-6">
                   <div>
                     <p className="text-sm text-gray-600">Used</p>
                     <p className="text-2xl font-bold text-gray-900">{quota.used}</p>
@@ -188,7 +217,7 @@ export default function TemplatesPage() {
 
       {/* Templates List */}
       {templates.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
+        <div className="text-center py-12 bg-white rounded-xl border border-slate-200">
           <svg
             className="mx-auto h-12 w-12 text-gray-400"
             fill="none"
@@ -202,8 +231,8 @@ export default function TemplatesPage() {
               d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
             />
           </svg>
-          <h3 className="mt-2 text-sm font-medium text-gray-900">No templates</h3>
-          <p className="mt-1 text-sm text-gray-500">Get started by creating a new template.</p>
+          <h3 className="mt-2 text-base font-semibold text-slate-900">No templates yet</h3>
+          <p className="mt-1 text-sm text-slate-600">Create your first template to support automations and follow-ups.</p>
           <div className="mt-6">
             <button
               onClick={() => setShowCreateModal(true)}

@@ -46,6 +46,7 @@ export default function AutomationsPage() {
   const { role } = usePermissions();
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedAutomation, setSelectedAutomation] = useState<Automation | null>(null);
   const [initialFormData, setInitialFormData] = useState<any>(null);
@@ -73,11 +74,13 @@ export default function AutomationsPage() {
 
   const loadAutomations = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const response = await automationsApi.getAutomations();
       setAutomations(response.data || []);
     } catch (error) {
       console.error('Failed to load automations', error);
+      setLoadError('We could not load your automation list. Please retry.');
       toast.error('Failed to load automations');
     } finally {
       setLoading(false);
@@ -215,7 +218,7 @@ export default function AutomationsPage() {
             </span>
           </div>
           <p className="text-sm text-slate-500">
-            Automate order confirmations, reminders, and status updates
+            Standardize confirmations, reminders, and recovery flows with rule-based messaging.
           </p>
         </div>
         <div className="flex gap-2">
@@ -249,18 +252,31 @@ export default function AutomationsPage() {
 
       {/* Info Banner - How Automations Work */}
       {automations.length > 0 && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <div className="bg-primary-50 border border-primary-200 rounded-xl p-4">
           <div className="flex">
             <svg className="w-5 h-5 text-blue-600 mr-2 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <div className="text-sm text-blue-800">
-              <p className="font-medium">How Automations Work</p>
+            <div className="text-sm text-primary-900">
+              <p className="font-medium">How automations run</p>
               <p className="mt-1">
-                Automations trigger automatically based on events (like new orders). They execute actions like sending WhatsApp messages, 
-                adding tags, or updating order status. Toggle them on/off anytime.
+                Automations trigger from events such as order creation or cart abandonment. Each rule executes message, tagging, or status actions.
               </p>
             </div>
+          </div>
+        </div>
+      )}
+
+      {loadError && (
+        <div className="rounded-xl border border-danger-200 bg-danger-50 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-sm text-danger-800">{loadError}</p>
+            <button
+              onClick={loadAutomations}
+              className="rounded-lg border border-danger-300 bg-white px-3 py-1.5 text-xs font-semibold text-danger-800 hover:bg-danger-100"
+            >
+              Retry
+            </button>
           </div>
         </div>
       )}
@@ -349,9 +365,9 @@ export default function AutomationsPage() {
       )}
 
       {/* Automations List */}
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200">
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200">
         <div className="p-6 border-b border-slate-200">
-          <h2 className="text-lg font-semibold text-slate-900">Your Automations</h2>
+          <h2 className="text-lg font-semibold text-slate-900">Automation Library</h2>
         </div>
 
         {loading ? (
@@ -366,7 +382,7 @@ export default function AutomationsPage() {
             </svg>
             <h3 className="mt-4 text-lg font-medium text-slate-900">No automations yet</h3>
             <p className="mt-2 text-sm text-slate-500">
-              Get started by creating your first automation to handle order confirmations and follow-ups.
+              Create your first automation to start handling confirmations, reminders, and recovery automatically.
             </p>
             <button
               onClick={() => setShowCreateModal(true)}
