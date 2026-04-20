@@ -55,15 +55,25 @@ export class WhatsAppCronService {
       this.logger.log('Running scheduled token refresh check');
       
       const results = await this.whatsappTokenService.autoRefreshExpiringTokens();
+      const qualityResults = await this.whatsappTokenService.checkPhoneQualityAlerts();
       
       this.logger.log(
         `Token refresh check complete: ${results.refreshed} refreshed, ${results.failed} failed`,
+      );
+      this.logger.log(
+        `Phone quality check complete: ${qualityResults.checked} checked, ${qualityResults.alerts} alerts`,
       );
 
       // Log failures for monitoring
       if (results.failed > 0) {
         this.logger.warn(
           `Failed to refresh ${results.failed} tokens. Check logs for details.`,
+        );
+      }
+
+      if (qualityResults.alerts > 0) {
+        this.logger.warn(
+          `Detected ${qualityResults.alerts} WhatsApp phone quality alerts. Review integration health.`,
         );
       }
     } catch (error: any) {

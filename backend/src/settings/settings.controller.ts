@@ -6,14 +6,17 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   Request,
+  ForbiddenException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { SettingsService } from './settings.service';
 import { WhatsAppTokenService } from './whatsapp-token.service';
 import { CreateWhatsAppIntegrationDto, UpdateWhatsAppIntegrationDto } from './dto/whatsapp-integration.dto';
 import { CreateShopifyStoreDto, UpdateShopifyStoreDto } from './dto/shopify-store.dto';
+import { TenantGuard } from '../common/guards/tenant.guard';
 
 @Controller('settings')
 @UseGuards(JwtAuthGuard)
@@ -138,6 +141,25 @@ export class SettingsController {
   @Get('whatsapp/health-summary')
   async getWhatsAppHealthSummary(@Request() req) {
     return this.whatsappTokenService.getHealthSummary(req.user.workspaceId);
+  }
+
+  @Get('whatsapp/alerts')
+  @UseGuards(TenantGuard)
+  async getWhatsAppAlerts(
+    @Request() req,
+    @Query('limit') limit?: string,
+    @Query('severity') severity?: string,
+  ) {
+    const allowedRoles = new Set(['owner', 'admin', 'manager']);
+    if (!allowedRoles.has(req.workspaceRole)) {
+      throw new ForbiddenException('Only owner, admin, or manager can view operational alerts');
+    }
+
+    return this.settingsService.getWhatsAppAlerts(
+      req.workspaceId,
+      limit ? Number(limit) : undefined,
+      severity,
+    );
   }
 
   @Post('whatsapp/auto-refresh')

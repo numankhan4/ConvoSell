@@ -1,4 +1,6 @@
-import { Controller, Post, Headers, Body, UseGuards, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Headers, Body, UseGuards, BadRequestException, Req } from '@nestjs/common';
+import { Request } from 'express';
+import { SkipThrottle } from '@nestjs/throttler';
 import { ShopifyService } from './shopify.service';
 import { Public } from '../common/decorators/public.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -43,6 +45,7 @@ export class ShopifyController {
    */
   @Public()
   @Post('webhook/test')
+  @SkipThrottle({ default: true })
   testWebhook(@Body() body: any) {
     console.log('\n✅ ========================================');
     console.log('🧪 TEST WEBHOOK RECEIVED');
@@ -62,10 +65,12 @@ export class ShopifyController {
    */
   @Public()
   @Post('webhook')
+  @SkipThrottle({ default: true })
   async handleWebhook(
     @Headers('x-shopify-hmac-sha256') hmac: string,
     @Headers('x-shopify-topic') topic: string,
     @Headers('x-shopify-shop-domain') shop: string,
+    @Req() req: Request & { rawBody?: Buffer },
     @Body() body: any,
   ) {
     const orderId = body?.id || 'unknown';
@@ -90,13 +95,18 @@ export class ShopifyController {
       return { error: 'Missing topic header' };
     }
 
-    // Verify signature (skip for now due to body parsing issues)
-    // TODO: Implement raw body parser for proper HMAC verification
-    // const isValid = this.shopifyService.verifyWebhookSignature(hmac, JSON.stringify(body));
-    // if (!isValid) {
-    //   console.error('⚠️ Invalid webhook signature');
-    //   return { error: 'Invalid signature' };
-    // }
+    if (!hmac) {
+      console.error('❌ Missing x-shopify-hmac-sha256 header');
+      return { error: 'Missing signature header' };
+    }
+
+    const rawBody = req.rawBody?.toString('utf8');
+    const signaturePayload = rawBody ?? JSON.stringify(body);
+    const isValidSignature = this.shopifyService.verifyWebhookSignature(hmac, signaturePayload);
+    if (!isValidSignature) {
+      console.error('⚠️ Invalid webhook signature');
+      return { error: 'Invalid signature' };
+    }
 
     // Find workspace by shop domain
     console.log(`🔍 Looking up store with domain: ${shop}`);

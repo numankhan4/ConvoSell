@@ -27,3 +27,25 @@ export interface ShopifyStore {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface WhatsAppAlertItem {
+  id: string;
+  createdAt: string;
+  action: string;
+  severity: 'error' | 'warning' | 'info';
+  entityType: string | null;
+  entityId: string | null;
+  metadata: Record<string, any>;
+}
+
+export interface WhatsAppAlertsResponse {
+  total: number;
+  limit: number;
+  severity?: string;
+  summary: {
+    error: number;
+    warning: number;
+    info: number;
+  };
+  alerts: WhatsAppAlertItem[];
+}

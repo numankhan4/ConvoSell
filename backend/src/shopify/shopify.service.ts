@@ -21,12 +21,27 @@ export class ShopifyService {
    */
   verifyWebhookSignature(hmac: string, body: string): boolean {
     const secret = this.config.get('SHOPIFY_WEBHOOK_SECRET');
+    if (!secret || !hmac || !body) {
+      return false;
+    }
+
     const hash = crypto
       .createHmac('sha256', secret)
       .update(body, 'utf8')
       .digest('base64');
 
-    return hmac === hash;
+    try {
+      const providedSignature = Buffer.from(hmac, 'base64');
+      const expectedSignature = Buffer.from(hash, 'base64');
+
+      if (providedSignature.length !== expectedSignature.length) {
+        return false;
+      }
+
+      return crypto.timingSafeEqual(providedSignature, expectedSignature);
+    } catch {
+      return false;
+    }
   }
 
   /**

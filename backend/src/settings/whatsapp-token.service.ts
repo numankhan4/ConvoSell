@@ -226,6 +226,113 @@ export class WhatsAppTokenService {
   }
 
   /**
+   * Check phone quality ratings for all active integrations and raise alerts.
+   */
+  async checkPhoneQualityAlerts(): Promise<{
+    checked: number;
+    alerts: number;
+    details: Array<{
+      workspaceId: string;
+      phoneNumberId: string;
+      qualityRating: string;
+      alertLevel: 'healthy' | 'warning' | 'error';
+      error?: string;
+    }>;
+  }> {
+    const integrations = await this.prisma.whatsAppIntegration.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        workspaceId: true,
+        phoneNumberId: true,
+        phoneNumber: true,
+        accessToken: true,
+      },
+    });
+
+    const results = {
+      checked: integrations.length,
+      alerts: 0,
+      details: [] as Array<{
+        workspaceId: string;
+        phoneNumberId: string;
+        qualityRating: string;
+        alertLevel: 'healthy' | 'warning' | 'error';
+        error?: string;
+      }>,
+    };
+
+    for (const integration of integrations) {
+      try {
+        const accessToken = decryptSecret(integration.accessToken) as string;
+        const response = await firstValueFrom(
+          this.httpService.get(`${this.GRAPH_API_URL}/${integration.phoneNumberId}`, {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+            },
+            params: {
+              fields: 'id,display_phone_number,quality_rating',
+            },
+          }),
+        );
+
+        const qualityRating = String(response.data?.quality_rating || 'UNKNOWN').toUpperCase();
+        const alertLevel =
+          qualityRating === 'RED' ? 'error' : qualityRating === 'YELLOW' ? 'warning' : 'healthy';
+
+        const healthError =
+          alertLevel === 'healthy'
+            ? null
+            : `WhatsApp phone quality rating is ${qualityRating}. Investigate message quality and complaint rate.`;
+
+        await this.prisma.whatsAppIntegration.update({
+          where: { id: integration.id },
+          data: {
+            lastHealthCheck: new Date(),
+            healthStatus: alertLevel,
+            healthError,
+          },
+        });
+
+        if (alertLevel !== 'healthy') {
+          results.alerts++;
+          await this.prisma.auditLog.create({
+            data: {
+              workspaceId: integration.workspaceId,
+              action: `whatsapp.quality_alert.${alertLevel}`,
+              entityType: 'whatsapp_integration',
+              entityId: integration.id,
+              metadata: {
+                phoneNumberId: integration.phoneNumberId,
+                phoneNumber: integration.phoneNumber,
+                qualityRating,
+              },
+            },
+          });
+        }
+
+        results.details.push({
+          workspaceId: integration.workspaceId,
+          phoneNumberId: integration.phoneNumberId,
+          qualityRating,
+          alertLevel,
+        });
+      } catch (error: any) {
+        results.alerts++;
+        results.details.push({
+          workspaceId: integration.workspaceId,
+          phoneNumberId: integration.phoneNumberId,
+          qualityRating: 'UNKNOWN',
+          alertLevel: 'warning',
+          error: error?.response?.data?.error?.message || error.message,
+        });
+      }
+    }
+
+    return results;
+  }
+
+  /**
    * Update health status for a specific integration
    */
   async updateHealthStatus(integrationId: string): Promise<{

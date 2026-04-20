@@ -1503,4 +1503,110 @@ export class SettingsService {
       },
     };
   }
+
+  /**
+   * Return recent WhatsApp operational alerts and status-change events.
+   */
+  async getWhatsAppAlerts(
+    workspaceId: string,
+    limit: number = 50,
+    severity?: string,
+  ): Promise<{
+    total: number;
+    limit: number;
+    severity?: string;
+    summary: {
+      error: number;
+      warning: number;
+      info: number;
+    };
+    alerts: Array<{
+      id: string;
+      createdAt: Date;
+      action: string;
+      severity: 'error' | 'warning' | 'info';
+      entityType: string | null;
+      entityId: string | null;
+      metadata: any;
+    }>;
+  }> {
+    const normalizedLimit = Number.isFinite(limit)
+      ? Math.max(1, Math.min(200, Math.floor(limit)))
+      : 50;
+    const normalizedSeverity = severity ? String(severity).toLowerCase() : undefined;
+
+    const allowedActions = [
+      'template.status_updated',
+      'whatsapp.quality_alert.warning',
+      'whatsapp.quality_alert.error',
+      'whatsapp.quality_rating.green',
+      'whatsapp.quality_rating.yellow',
+      'whatsapp.quality_rating.red',
+    ];
+
+    const rows = await this.prisma.auditLog.findMany({
+      where: {
+        workspaceId,
+        action: {
+          in: allowedActions,
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      take: normalizedLimit,
+      select: {
+        id: true,
+        createdAt: true,
+        action: true,
+        entityType: true,
+        entityId: true,
+        metadata: true,
+      },
+    });
+
+    let alerts = rows.map((row) => {
+      const severity: 'error' | 'warning' | 'info' = (() => {
+        if (row.action.endsWith('.error') || row.action.endsWith('.red')) return 'error';
+        if (row.action.endsWith('.warning') || row.action.endsWith('.yellow')) return 'warning';
+
+        if (row.action === 'template.status_updated') {
+          const newStatus = String((row.metadata as any)?.newStatus || '').toUpperCase();
+          if (newStatus === 'REJECTED') return 'warning';
+        }
+
+        return 'info';
+      })();
+
+      return {
+        id: row.id,
+        createdAt: row.createdAt,
+        action: row.action,
+        severity,
+        entityType: row.entityType,
+        entityId: row.entityId,
+        metadata: row.metadata,
+      };
+    });
+
+    if (normalizedSeverity && ['error', 'warning', 'info'].includes(normalizedSeverity)) {
+      alerts = alerts.filter((row) => row.severity === normalizedSeverity);
+    }
+
+    const summary = alerts.reduce(
+      (acc, row) => {
+        acc[row.severity] += 1;
+        return acc;
+      },
+      { error: 0, warning: 0, info: 0 },
+    );
+
+    return {
+      total: alerts.length,
+      limit: normalizedLimit,
+      ...(normalizedSeverity ? { severity: normalizedSeverity } : {}),
+      summary,
+      alerts,
+    };
+  }
 }

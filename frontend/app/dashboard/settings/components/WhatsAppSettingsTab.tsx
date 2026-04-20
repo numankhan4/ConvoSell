@@ -3,17 +3,19 @@
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { PermissionGate } from '@/components/PermissionGate';
-import { Permissions } from '@/lib/hooks/usePermissions';
+import { Permissions, usePermissions } from '@/lib/hooks/usePermissions';
 import { useAuthStore } from '@/lib/store/auth';
 import { settingsApi } from '@/lib/api/settings';
-import { WhatsAppIntegration } from './types';
+import { WhatsAppAlertItem, WhatsAppAlertsResponse, WhatsAppIntegration } from './types';
 
 interface WhatsAppSettingsTabProps {
   onConnectionChange?: (connected: boolean) => void;
 }
 
 export function WhatsAppSettingsTab({ onConnectionChange }: WhatsAppSettingsTabProps) {
-  const { token } = useAuthStore();
+  const { token, currentWorkspace } = useAuthStore();
+  const { hasPermission } = usePermissions();
+  const canViewOpsAlerts = hasPermission(Permissions.SETTINGS_UPDATE);
 
   const [whatsappIntegration, setWhatsappIntegration] = useState<WhatsAppIntegration | null>(null);
   const [whatsappForm, setWhatsappForm] = useState({
@@ -29,6 +31,9 @@ export function WhatsAppSettingsTab({ onConnectionChange }: WhatsAppSettingsTabP
   const [showSetupHelp, setShowSetupHelp] = useState(false);
   const [showWebhookConfig, setShowWebhookConfig] = useState(false);
   const [webhookConfig, setWebhookConfig] = useState<any>(null);
+  const [alertsLoading, setAlertsLoading] = useState(false);
+  const [alertsSeverity, setAlertsSeverity] = useState<'all' | 'error' | 'warning' | 'info'>('all');
+  const [alertsData, setAlertsData] = useState<WhatsAppAlertsResponse | null>(null);
 
   const loadWhatsAppIntegration = async () => {
     if (!token) return;
@@ -53,11 +58,32 @@ export function WhatsAppSettingsTab({ onConnectionChange }: WhatsAppSettingsTabP
     }
   };
 
+  const loadWhatsAppAlerts = async (severity: 'all' | 'error' | 'warning' | 'info' = alertsSeverity) => {
+    if (!token || !currentWorkspace?.id || !canViewOpsAlerts) return;
+
+    setAlertsLoading(true);
+    try {
+      const data = await settingsApi.getWhatsAppAlerts(token, currentWorkspace.id, {
+        limit: 25,
+        ...(severity !== 'all' ? { severity } : {}),
+      });
+      setAlertsData(data);
+    } catch (error: any) {
+      console.error('Failed to load WhatsApp alerts:', error);
+      toast.error(error?.response?.data?.message || 'Failed to load WhatsApp alerts');
+    } finally {
+      setAlertsLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadWhatsAppIntegration();
     loadWebhookConfig();
+    if (canViewOpsAlerts) {
+      loadWhatsAppAlerts();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [token, currentWorkspace?.id, canViewOpsAlerts]);
 
   useEffect(() => {
     if (whatsappIntegration) {
@@ -396,6 +422,90 @@ export function WhatsAppSettingsTab({ onConnectionChange }: WhatsAppSettingsTabP
           </div>
         </div>
       )}
+
+      <PermissionGate permission={Permissions.SETTINGS_UPDATE}>
+        <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+            <div>
+              <h3 className="text-sm sm:text-base font-semibold text-slate-900">WhatsApp Operational Alerts</h3>
+              <p className="text-xs text-slate-600 mt-1">Template approvals/rejections and phone quality signals</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={alertsSeverity}
+                onChange={(e) => {
+                  const nextSeverity = e.target.value as 'all' | 'error' | 'warning' | 'info';
+                  setAlertsSeverity(nextSeverity);
+                  loadWhatsAppAlerts(nextSeverity);
+                }}
+                className="px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs sm:text-sm"
+              >
+                <option value="all">All</option>
+                <option value="error">Errors</option>
+                <option value="warning">Warnings</option>
+                <option value="info">Info</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => loadWhatsAppAlerts(alertsSeverity)}
+                disabled={alertsLoading}
+                className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs sm:text-sm disabled:bg-slate-400"
+              >
+                {alertsLoading ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-4">
+            <div className="rounded-lg border border-red-200 bg-red-50 p-2.5">
+              <p className="text-[11px] sm:text-xs text-red-700">Errors</p>
+              <p className="text-sm sm:text-lg font-semibold text-red-900">{alertsData?.summary.error ?? 0}</p>
+            </div>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5">
+              <p className="text-[11px] sm:text-xs text-amber-700">Warnings</p>
+              <p className="text-sm sm:text-lg font-semibold text-amber-900">{alertsData?.summary.warning ?? 0}</p>
+            </div>
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-2.5">
+              <p className="text-[11px] sm:text-xs text-blue-700">Info</p>
+              <p className="text-sm sm:text-lg font-semibold text-blue-900">{alertsData?.summary.info ?? 0}</p>
+            </div>
+          </div>
+
+          <div className="space-y-2 max-h-72 overflow-auto pr-1">
+            {!alertsLoading && (!alertsData || alertsData.alerts.length === 0) && (
+              <div className="text-xs sm:text-sm text-slate-500 border border-dashed border-slate-300 rounded-lg p-3">
+                No alerts found for this filter.
+              </div>
+            )}
+
+            {(alertsData?.alerts || []).map((alert: WhatsAppAlertItem) => {
+              const style =
+                alert.severity === 'error'
+                  ? 'border-red-200 bg-red-50 text-red-900'
+                  : alert.severity === 'warning'
+                  ? 'border-amber-200 bg-amber-50 text-amber-900'
+                  : 'border-slate-200 bg-slate-50 text-slate-900';
+
+              const detail =
+                alert.action === 'template.status_updated'
+                  ? `${String(alert.metadata?.templateName || '').trim()} ${String(alert.metadata?.newStatus || '').trim()}`.trim()
+                  : `${String(alert.metadata?.phoneNumber || alert.metadata?.phoneNumberId || '').trim()} ${String(alert.metadata?.qualityRating || '').trim()}`.trim();
+
+              return (
+                <div key={alert.id} className={`rounded-lg border p-3 ${style}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs sm:text-sm font-semibold">{alert.action}</p>
+                    <span className="text-[10px] sm:text-xs opacity-80">
+                      {new Date(alert.createdAt).toLocaleString()}
+                    </span>
+                  </div>
+                  {detail && <p className="text-xs mt-1 opacity-90">{detail}</p>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </PermissionGate>
 
       <form onSubmit={handleWhatsAppSubmit} className="space-y-5">
         <div>

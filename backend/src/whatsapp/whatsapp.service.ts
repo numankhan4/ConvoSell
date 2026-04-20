@@ -23,6 +23,19 @@ interface SendMessageDto {
   interactive?: any;
 }
 
+interface TemplateStatusUpdatePayload {
+  event?: string;
+  status?: string;
+  message_template_id?: string;
+  message_template_name?: string;
+  message_template_language?: string;
+  reason?: string;
+  disable_info?: {
+    disable_date?: string;
+    disable_info_details?: string;
+  };
+}
+
 @Injectable()
 export class WhatsAppService {
   private readonly logger = new Logger(WhatsAppService.name);
@@ -82,25 +95,19 @@ export class WhatsAppService {
 
       // Call Meta Cloud API
       const url = `${this.apiUrl}/${integration.phoneNumberId}/messages`;
-      const response = await firstValueFrom(
-        this.httpService.post(
-          url,
-          {
-            messaging_product: 'whatsapp',
-            to: phoneForApi,
-            type: dto.type,
-            ...(dto.text && { text: dto.text }),
-            ...(dto.template && { template: dto.template }),
-            ...(dto.interactive && { interactive: dto.interactive }),
-          },
-          {
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              'Content-Type': 'application/json',
-            },
-          },
-        ),
-      );
+      const payload = {
+        messaging_product: 'whatsapp',
+        to: phoneForApi,
+        type: dto.type,
+        ...(dto.text && { text: dto.text }),
+        ...(dto.template && { template: dto.template }),
+        ...(dto.interactive && { interactive: dto.interactive }),
+      };
+
+      const response = await this.sendWithRetry(url, payload, {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      });
 
       const messageId = (response.data as any).messages[0].id;
 
@@ -147,6 +154,74 @@ export class WhatsAppService {
       
       throw new BadRequestException(errorMessage);
     }
+  }
+
+  private async sendWithRetry(
+    url: string,
+    payload: Record<string, any>,
+    headers: Record<string, string>,
+  ) {
+    const maxAttempts = 3;
+    let lastError: any;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await firstValueFrom(
+          this.httpService.post(url, payload, {
+            headers,
+          }),
+        );
+      } catch (error: any) {
+        lastError = error;
+        const shouldRetry = this.shouldRetryWhatsAppError(error);
+        const hasMoreAttempts = attempt < maxAttempts;
+
+        if (!shouldRetry || !hasMoreAttempts) {
+          throw error;
+        }
+
+        const waitMs = this.calculateBackoffMs(attempt);
+        const status = error?.response?.status;
+        const metaCode = error?.response?.data?.error?.code;
+        this.logger.warn(
+          `WhatsApp send transient failure (attempt ${attempt}/${maxAttempts}, status=${status}, metaCode=${metaCode}). Retrying in ${waitMs}ms`,
+        );
+        await this.sleep(waitMs);
+      }
+    }
+
+    throw lastError;
+  }
+
+  private shouldRetryWhatsAppError(error: any): boolean {
+    const httpStatus = error?.response?.status;
+    const metaCode = Number(error?.response?.data?.error?.code);
+
+    if (httpStatus === 429 || httpStatus === 503 || httpStatus === 502 || httpStatus === 504) {
+      return true;
+    }
+
+    if (httpStatus >= 500 && httpStatus < 600) {
+      return true;
+    }
+
+    // Known transient Meta error families.
+    if ([1, 2, 4, 17, 32, 613, 130429, 131056].includes(metaCode)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  private calculateBackoffMs(attempt: number): number {
+    const baseDelayMs = 600;
+    const exponential = baseDelayMs * Math.pow(2, attempt - 1);
+    const jitter = Math.floor(Math.random() * 200);
+    return exponential + jitter;
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**
@@ -549,27 +624,185 @@ export class WhatsAppService {
    */
   async handleWebhookEvent(event: any): Promise<void> {
     try {
-      const entry = event.entry?.[0];
-      const changes = entry?.changes?.[0];
-      const value = changes?.value;
+      const entries = Array.isArray(event?.entry) ? event.entry : [];
+      for (const entry of entries) {
+        const changes = Array.isArray(entry?.changes) ? entry.changes : [];
 
-      if (!value) {
-        this.logger.warn('Invalid webhook payload structure');
-        return;
-      }
+        for (const change of changes) {
+          const value = change?.value;
+          if (!value) {
+            this.logger.warn('Invalid webhook payload structure in change value');
+            continue;
+          }
 
-      // Handle different event types
-      if (value.messages) {
-        await this.handleIncomingMessages(value);
-      }
+          if (value.messages) {
+            await this.handleIncomingMessages(value);
+          }
 
-      if (value.statuses) {
-        await this.handleMessageStatuses(value);
+          if (value.statuses) {
+            await this.handleMessageStatuses(value);
+          }
+
+          if (
+            change?.field === 'message_template_status_update' ||
+            value.message_template_id ||
+            value.message_template_name
+          ) {
+            await this.handleTemplateStatusUpdate(value);
+          }
+
+          if (
+            change?.field === 'phone_number_quality_update' ||
+            value.current_quality_rating ||
+            value.new_quality_rating ||
+            value.quality_rating
+          ) {
+            await this.handlePhoneNumberQualityUpdate(value);
+          }
+        }
       }
     } catch (error) {
       this.logger.error('Error handling webhook event', error);
       throw error;
     }
+  }
+
+  private normalizeTemplateStatus(rawStatus?: string): 'APPROVED' | 'REJECTED' | 'PENDING' {
+    const normalized = String(rawStatus || '').trim().toUpperCase();
+
+    if (['APPROVED', 'ACTIVE'].includes(normalized)) {
+      return 'APPROVED';
+    }
+
+    if (['REJECTED', 'DISABLED', 'PAUSED'].includes(normalized)) {
+      return 'REJECTED';
+    }
+
+    return 'PENDING';
+  }
+
+  private async handleTemplateStatusUpdate(value: TemplateStatusUpdatePayload): Promise<void> {
+    const metaTemplateId = value.message_template_id;
+    const templateName = value.message_template_name;
+    const templateLanguage = value.message_template_language;
+    const rawStatus = value.event || value.status;
+    const mappedStatus = this.normalizeTemplateStatus(rawStatus);
+    const rejectionReason = value.reason || value.disable_info?.disable_info_details || null;
+
+    if (!metaTemplateId && !templateName) {
+      this.logger.warn('Template status update skipped: missing template identifier');
+      return;
+    }
+
+    const whereByMetaId = metaTemplateId ? { metaTemplateId } : undefined;
+    const template = whereByMetaId
+      ? await this.prisma.whatsAppMessageTemplate.findFirst({ where: whereByMetaId })
+      : await this.prisma.whatsAppMessageTemplate.findFirst({
+          where: {
+            name: templateName,
+            ...(templateLanguage ? { language: templateLanguage } : {}),
+          },
+        });
+
+    if (!template) {
+      this.logger.warn(
+        `Template status update ignored: template not found (metaTemplateId=${metaTemplateId}, name=${templateName})`,
+      );
+      return;
+    }
+
+    await this.prisma.whatsAppMessageTemplate.update({
+      where: { id: template.id },
+      data: {
+        status: mappedStatus,
+        ...(rejectionReason ? { rejectionReason } : {}),
+      },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        workspaceId: template.workspaceId,
+        action: 'template.status_updated',
+        entityType: 'template',
+        entityId: template.id,
+        metadata: {
+          previousStatus: template.status,
+          newStatus: mappedStatus,
+          rawStatus,
+          metaTemplateId,
+          templateName,
+          templateLanguage,
+          rejectionReason,
+        },
+      },
+    });
+
+    this.logger.log(
+      `Template status synchronized: ${template.name} ${template.language} (${template.status} -> ${mappedStatus})`,
+    );
+  }
+
+  private async handlePhoneNumberQualityUpdate(value: any): Promise<void> {
+    const phoneNumberId =
+      value?.phone_number_id || value?.metadata?.phone_number_id || value?.display_phone_number;
+    const qualityRating =
+      value?.current_quality_rating || value?.new_quality_rating || value?.quality_rating;
+
+    if (!phoneNumberId || !qualityRating) {
+      this.logger.warn('Phone quality update skipped: missing phone number identifier or rating');
+      return;
+    }
+
+    const integration = await this.prisma.whatsAppIntegration.findFirst({
+      where: {
+        OR: [{ phoneNumberId: String(phoneNumberId) }, { phoneNumber: String(phoneNumberId) }],
+      },
+      select: {
+        id: true,
+        workspaceId: true,
+        phoneNumber: true,
+      },
+    });
+
+    if (!integration) {
+      this.logger.warn(`Phone quality update ignored: integration not found for ${phoneNumberId}`);
+      return;
+    }
+
+    const normalized = String(qualityRating).toUpperCase();
+    const nextHealthStatus = normalized === 'RED' ? 'error' : normalized === 'YELLOW' ? 'warning' : 'healthy';
+    const healthMessage =
+      normalized === 'GREEN'
+        ? null
+        : `WhatsApp phone quality rating degraded to ${normalized}. Review sending behavior and template targeting.`;
+
+    await this.prisma.whatsAppIntegration.update({
+      where: { id: integration.id },
+      data: {
+        lastHealthCheck: new Date(),
+        healthStatus: nextHealthStatus,
+        healthError: healthMessage,
+      },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        workspaceId: integration.workspaceId,
+        action: `whatsapp.quality_rating.${normalized.toLowerCase()}`,
+        entityType: 'whatsapp_integration',
+        entityId: integration.id,
+        metadata: {
+          phoneNumberId,
+          phoneNumber: integration.phoneNumber,
+          qualityRating: normalized,
+          healthStatus: nextHealthStatus,
+        },
+      },
+    });
+
+    this.logger.warn(
+      `WhatsApp phone quality rating update: workspace=${integration.workspaceId}, phone=${integration.phoneNumber}, rating=${normalized}`,
+    );
   }
 
   /**

@@ -1,5 +1,6 @@
 import { Controller, Post, Get, Body, Query, Param, Req, Headers, Res, HttpStatus, UseGuards, Logger } from '@nestjs/common';
 import { Response } from 'express';
+import { SkipThrottle } from '@nestjs/throttler';
 import { WhatsAppService } from './whatsapp.service';
 import { Public } from '../common/decorators/public.decorator';
 import { WorkspaceId } from '../common/decorators/user.decorator';
@@ -34,6 +35,7 @@ export class WhatsAppController {
    */
   @Public()
   @Post('webhook')
+  @SkipThrottle({ default: true })
   async handleWebhook(
     @Headers('x-hub-signature-256') signature: string,
     @Body() body: any,
@@ -65,6 +67,7 @@ export class WhatsAppController {
    */
   @Public()
   @Get('webhook')
+  @SkipThrottle({ default: true })
   verifyWebhook(
     @Query('hub.mode') mode: string,
     @Query('hub.verify_token') token: string,
@@ -90,6 +93,7 @@ export class WhatsAppController {
    */
   @Public()
   @Get('webhook/:workspaceId')
+  @SkipThrottle({ default: true })
   async verifyWebhookPerTenant(
     @Param('workspaceId') workspaceId: string,
     @Query('hub.mode') mode: string,
@@ -133,6 +137,7 @@ export class WhatsAppController {
    */
   @Public()
   @Post('webhook/:workspaceId')
+  @SkipThrottle({ default: true })
   async handleWebhookPerTenant(
     @Param('workspaceId') workspaceId: string,
     @Headers('x-hub-signature-256') signature: string,

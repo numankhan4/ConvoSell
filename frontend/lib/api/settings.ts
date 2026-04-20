@@ -2,6 +2,28 @@ import axios from 'axios';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
 
+export interface WhatsAppAlertItem {
+  id: string;
+  createdAt: string;
+  action: string;
+  severity: 'error' | 'warning' | 'info';
+  entityType: string | null;
+  entityId: string | null;
+  metadata: Record<string, any>;
+}
+
+export interface WhatsAppAlertsResponse {
+  total: number;
+  limit: number;
+  severity?: string;
+  summary: {
+    error: number;
+    warning: number;
+    info: number;
+  };
+  alerts: WhatsAppAlertItem[];
+}
+
 // Settings API
 export const settingsApi = {
   // Order verification policy
@@ -211,6 +233,27 @@ export const settingsApi = {
   getWebhookUrls: async (token: string) => {
     const response = await axios.get(`${API_URL}/settings/webhook-urls`, {
       headers: { Authorization: `Bearer ${token}` },
+    });
+    return response.data;
+  },
+
+  getWhatsAppAlerts: async (
+    token: string,
+    workspaceId: string,
+    options?: {
+      limit?: number;
+      severity?: 'error' | 'warning' | 'info';
+    },
+  ): Promise<WhatsAppAlertsResponse> => {
+    const response = await axios.get(`${API_URL}/settings/whatsapp/alerts`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'x-workspace-id': workspaceId,
+      },
+      params: {
+        ...(options?.limit ? { limit: options.limit } : {}),
+        ...(options?.severity ? { severity: options.severity } : {}),
+      },
     });
     return response.data;
   },
