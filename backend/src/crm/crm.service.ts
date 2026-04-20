@@ -16,12 +16,14 @@ export class CrmService {
     action: string,
     entityType: string,
     entityId: string | null,
+    userId?: string,
     metadata?: Record<string, any>,
   ) {
     try {
       await this.prisma.auditLog.create({
         data: {
           workspaceId,
+          userId,
           action,
           entityType,
           entityId,
@@ -55,7 +57,7 @@ export class CrmService {
     limit?: number;
     search?: string;
     tags?: string[];
-  }) {
+  }, actorUserId?: string) {
     const page = params.page || 1;
     const limit = params.limit || 50;
     const skip = (page - 1) * limit;
@@ -126,9 +128,10 @@ export class CrmService {
       totalSpent: spentMap.get(contact.id) || 0,
     }));
 
-    await this.writeReadAudit(workspaceId, 'contacts.list.view', 'contact', null, {
+    await this.writeReadAudit(workspaceId, 'contacts.list.view', 'contact', null, actorUserId, {
       page,
       limit,
+      purpose: 'customer_support_operations',
       hasSearch: !!params.search,
       hasTags: !!params.tags?.length,
       resultCount: contactsWithComputedStats.length,
@@ -149,7 +152,7 @@ export class CrmService {
   /**
    * Get single contact with conversations
    */
-  async getContact(workspaceId: string, contactId: string) {
+  async getContact(workspaceId: string, contactId: string, actorUserId?: string) {
     const contact = await this.prisma.contact.findFirst({
       where: { id: contactId, workspaceId },
       include: {
@@ -177,8 +180,9 @@ export class CrmService {
         }
       : null;
 
-    await this.writeReadAudit(workspaceId, 'contact.detail.view', 'contact', contactId, {
+    await this.writeReadAudit(workspaceId, 'contact.detail.view', 'contact', contactId, actorUserId, {
       found: !!contact,
+      purpose: 'customer_support_investigation',
     });
 
     return contactWithComputedStats;
@@ -248,7 +252,7 @@ export class CrmService {
     status?: string;
     page?: number;
     limit?: number;
-  }) {
+  }, actorUserId?: string) {
     const page = params.page || 1;
     const limit = params.limit || 25;
     const skip = (page - 1) * limit;
@@ -278,9 +282,10 @@ export class CrmService {
       this.prisma.conversation.count({ where }),
     ]);
 
-    await this.writeReadAudit(workspaceId, 'conversations.list.view', 'conversation', null, {
+    await this.writeReadAudit(workspaceId, 'conversations.list.view', 'conversation', null, actorUserId, {
       page,
       limit,
+      purpose: 'inbox_management',
       status: params.status || null,
       resultCount: conversations.length,
       total,
@@ -300,7 +305,7 @@ export class CrmService {
   /**
    * Get conversation messages
    */
-  async getConversationMessages(workspaceId: string, conversationId: string) {
+  async getConversationMessages(workspaceId: string, conversationId: string, actorUserId?: string) {
     const conversation = await this.prisma.conversation.findFirst({
       where: { id: conversationId, workspaceId },
       include: {
@@ -311,8 +316,9 @@ export class CrmService {
       },
     });
 
-    await this.writeReadAudit(workspaceId, 'conversation.detail.view', 'conversation', conversationId, {
+    await this.writeReadAudit(workspaceId, 'conversation.detail.view', 'conversation', conversationId, actorUserId, {
       found: !!conversation,
+      purpose: 'conversation_resolution',
       messageCount: conversation?.messages?.length || 0,
     });
 
@@ -330,7 +336,7 @@ export class CrmService {
   /**
    * Export contacts in JSON or CSV format.
    */
-  async exportContacts(workspaceId: string, format: 'json' | 'csv' = 'json') {
+  async exportContacts(workspaceId: string, format: 'json' | 'csv' = 'json', actorUserId?: string) {
     const contacts = await this.prisma.contact.findMany({
       where: { workspaceId },
       orderBy: { createdAt: 'desc' },
@@ -346,9 +352,10 @@ export class CrmService {
       },
     });
 
-    await this.writeReadAudit(workspaceId, 'contacts.export', 'contact', null, {
+    await this.writeReadAudit(workspaceId, 'contacts.export', 'contact', null, actorUserId, {
       format,
       count: contacts.length,
+      purpose: 'data_export',
     });
 
     await this.exportDlpService.evaluateAndAlert(

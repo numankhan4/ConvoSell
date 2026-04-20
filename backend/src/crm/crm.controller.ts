@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Param, Query, Body, UseGuards } from '@nestjs/common';
 import { CrmService } from './crm.service';
-import { WorkspaceId } from '../common/decorators/user.decorator';
+import { CurrentUser, WorkspaceId } from '../common/decorators/user.decorator';
 import { TenantGuard } from '../common/guards/tenant.guard';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { RequirePermission } from '../common/decorators/permission.decorator';
@@ -17,25 +17,27 @@ export class CrmController {
   @Get('contacts')
   getContacts(
     @WorkspaceId() workspaceId: string,
+    @CurrentUser() user: any,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
     @Query('search') search?: string,
   ) {
-    return this.crmService.getContacts(workspaceId, { page, limit, search });
+    return this.crmService.getContacts(workspaceId, { page, limit, search }, user?.sub);
   }
 
   @Get('contacts/export')
   @RequirePermission(Permission.CONTACTS_EXPORT)
   exportContacts(
     @WorkspaceId() workspaceId: string,
+    @CurrentUser() user: any,
     @Query('format') format?: 'json' | 'csv',
   ) {
-    return this.crmService.exportContacts(workspaceId, format || 'json');
+    return this.crmService.exportContacts(workspaceId, format || 'json', user?.sub);
   }
 
   @Get('contacts/:id')
-  getContact(@WorkspaceId() workspaceId: string, @Param('id') id: string) {
-    return this.crmService.getContact(workspaceId, id);
+  getContact(@WorkspaceId() workspaceId: string, @CurrentUser() user: any, @Param('id') id: string) {
+    return this.crmService.getContact(workspaceId, id, user?.sub);
   }
 
   @Post('contacts')
@@ -54,15 +56,16 @@ export class CrmController {
   @Get('conversations')
   getConversations(
     @WorkspaceId() workspaceId: string,
+    @CurrentUser() user: any,
     @Query('status') status?: string,
     @Query('page') page?: number,
   ) {
-    return this.crmService.getConversations(workspaceId, { status, page });
+    return this.crmService.getConversations(workspaceId, { status, page }, user?.sub);
   }
 
   @Get('conversations/:id')
-  getConversation(@WorkspaceId() workspaceId: string, @Param('id') id: string) {
-    return this.crmService.getConversationMessages(workspaceId, id);
+  getConversation(@WorkspaceId() workspaceId: string, @CurrentUser() user: any, @Param('id') id: string) {
+    return this.crmService.getConversationMessages(workspaceId, id, user?.sub);
   }
 
   @Get('debug/messages')

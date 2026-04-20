@@ -16,12 +16,14 @@ export class OrdersService {
     action: string,
     entityType: string,
     entityId: string | null,
+    userId?: string,
     metadata?: Record<string, any>,
   ) {
     try {
       await this.prisma.auditLog.create({
         data: {
           workspaceId,
+          userId,
           action,
           entityType,
           entityId,
@@ -41,7 +43,7 @@ export class OrdersService {
     search?: string;
     page?: number;
     limit?: number;
-  }) {
+  }, actorUserId?: string) {
     const page = params.page || 1;
     const limit = params.limit || 50;
     const skip = (page - 1) * limit;
@@ -120,6 +122,16 @@ export class OrdersService {
       };
     });
 
+    await this.writeReadAudit(workspaceId, 'orders.list.view', 'order', null, actorUserId, {
+      page,
+      limit,
+      status: params.status || null,
+      hasSearch: !!params.search,
+      resultCount: withFraudSummary.length,
+      total,
+      purpose: 'order_operations',
+    });
+
     return {
       data: withFraudSummary,
       meta: {
@@ -134,7 +146,7 @@ export class OrdersService {
   /**
    * Get single order
    */
-  async getOrder(workspaceId: string, orderId: string) {
+  async getOrder(workspaceId: string, orderId: string, actorUserId?: string) {
     const order = await this.prisma.order.findFirst({
       where: { id: orderId, workspaceId },
       include: {
@@ -158,8 +170,9 @@ export class OrdersService {
       },
     });
 
-    await this.writeReadAudit(workspaceId, 'order.detail.view', 'order', orderId, {
+    await this.writeReadAudit(workspaceId, 'order.detail.view', 'order', orderId, actorUserId, {
       found: !!order,
+      purpose: 'order_investigation',
     });
 
     if (!order) {
@@ -293,7 +306,7 @@ export class OrdersService {
   /**
    * Export orders in JSON or CSV format.
    */
-  async exportOrders(workspaceId: string, format: 'json' | 'csv' = 'json') {
+  async exportOrders(workspaceId: string, format: 'json' | 'csv' = 'json', actorUserId?: string) {
     const activeStoreId = await this.settingsService.getActiveShopifyStoreId(workspaceId);
 
     const where: any = {
@@ -319,10 +332,11 @@ export class OrdersService {
       },
     });
 
-    await this.writeReadAudit(workspaceId, 'orders.export', 'order', null, {
+    await this.writeReadAudit(workspaceId, 'orders.export', 'order', null, actorUserId, {
       format,
       count: orders.length,
       activeStoreOnly: !!activeStoreId,
+      purpose: 'data_export',
     });
 
     await this.exportDlpService.evaluateAndAlert(
