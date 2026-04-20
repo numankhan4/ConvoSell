@@ -1,9 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { ExportDlpService } from '../common/services/export-dlp.service';
 
 @Injectable()
 export class CrmService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private exportDlpService: ExportDlpService,
+  ) {}
 
   private readonly SPENT_ORDER_STATUSES = ['confirmed', 'completed'] as const;
 
@@ -346,6 +350,13 @@ export class CrmService {
       format,
       count: contacts.length,
     });
+
+    await this.exportDlpService.evaluateAndAlert(
+      workspaceId,
+      'contacts.export',
+      contacts.length,
+      format,
+    );
 
     if (format === 'csv') {
       const escapeCsv = (value: unknown) => {

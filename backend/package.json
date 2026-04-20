@@ -21,6 +21,9 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "shopify:resync-order": "ts-node src/scripts/resync-shopify-order.ts",
+    "security:migrate-secrets": "ts-node src/scripts/migrate-encrypted-secrets.ts",
+    "security:migrate-secrets:dry-run": "ts-node src/scripts/migrate-encrypted-secrets.ts --dry-run",
+    "security:audit-report": "ts-node src/scripts/audit-access-report.ts",
     "security:check": "ts-node src/scripts/security-regression-check.ts"
   },
   "dependencies": {

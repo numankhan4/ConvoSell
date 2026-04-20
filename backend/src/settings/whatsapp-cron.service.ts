@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { WhatsAppTokenService } from './whatsapp-token.service';
+import { AuditRetentionService } from '../common/services/audit-retention.service';
 
 /**
  * Cron service for WhatsApp token management
@@ -10,7 +11,10 @@ export class WhatsAppCronService {
   private readonly logger = new Logger(WhatsAppCronService.name);
   private intervalId: NodeJS.Timeout | null = null;
 
-  constructor(private whatsappTokenService: WhatsAppTokenService) {}
+  constructor(
+    private whatsappTokenService: WhatsAppTokenService,
+    private auditRetentionService: AuditRetentionService,
+  ) {}
 
   /**
    * Start the daily token refresh check
@@ -56,12 +60,16 @@ export class WhatsAppCronService {
       
       const results = await this.whatsappTokenService.autoRefreshExpiringTokens();
       const qualityResults = await this.whatsappTokenService.checkPhoneQualityAlerts();
+      const auditCleanup = await this.auditRetentionService.cleanupExpiredAuditLogs();
       
       this.logger.log(
         `Token refresh check complete: ${results.refreshed} refreshed, ${results.failed} failed`,
       );
       this.logger.log(
         `Phone quality check complete: ${qualityResults.checked} checked, ${qualityResults.alerts} alerts`,
+      );
+      this.logger.log(
+        `Audit retention cleanup complete: ${auditCleanup.deleted} deleted using ${auditCleanup.retentionDays}-day retention`,
       );
 
       // Log failures for monitoring
