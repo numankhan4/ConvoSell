@@ -55,6 +55,29 @@ GitHub UI path:
 
 Use your preferred provider. For Render-like setup:
 
+### One-click baseline with Render Blueprint
+
+This repository now includes `render.yaml` at root.
+
+Steps:
+1. Push latest `main` to GitHub.
+2. In Render dashboard, click **New +** -> **Blueprint**.
+3. Select this GitHub repo.
+4. Render detects `render.yaml` and creates:
+   - `convosell-backend` (web service)
+   - `convosell-worker` (worker service)
+5. Fill secret env vars when prompted (see section below).
+6. Deploy both services.
+
+After backend deploy, Render gives you a URL like:
+- `https://convosell-backend.onrender.com`
+
+Your API base is:
+- `https://convosell-backend.onrender.com/api`
+
+After custom domain setup, this becomes:
+- `https://api.yourdomain.com/api`
+
 ### Backend service
 - Root: `backend`
 - Build: `npm install && npm run build`
@@ -67,6 +90,14 @@ Use your preferred provider. For Render-like setup:
   - `INTERNAL_WORKER_KEY`
   - `FRONTEND_URL=https://app.yourdomain.com`
   - WhatsApp/Shopify provider vars as needed
+
+Minimum required to boot reliably:
+- `DATABASE_URL`
+- `REDIS_URL`
+- `JWT_SECRET`
+- `WHATSAPP_CRM_ENCRYPTION_KEY`
+- `INTERNAL_WORKER_KEY`
+- `FRONTEND_URL`
 
 ### Worker service
 - Root: `worker`
@@ -109,6 +140,16 @@ Then update provider callbacks/webhooks:
 - Neon free tier: suitable for MVP/dev traffic.
 - Upstash free tier: suitable for MVP queue/cache.
 - Backend/worker compute: usually free-trial or low-cost tiers depending on provider.
+
+### Practical free stack recommendation
+
+- Backend + Worker: Render free instances
+- PostgreSQL: Neon free database
+- Redis: Upstash free Redis
+
+Copy these URLs into Render env vars:
+- `DATABASE_URL` from Neon
+- `REDIS_URL` from Upstash
 
 ## 10) If You Want Only a Public Demo Today
 
