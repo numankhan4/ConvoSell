@@ -28,8 +28,8 @@ Your complete webhook URL should be:
 ### 🔑 API Credentials (SAVE THESE SECURELY)
 
 ```
-Phone Number ID: 106763505640121
-WhatsApp Business Account ID: 145795181245524
+Phone Number ID: YOUR_PHONE_NUMBER_ID
+WhatsApp Business Account ID: YOUR_BUSINESS_ACCOUNT_ID
 Access Token (System User - Never Expires): 
 [REDACTED - Keep this token private and secure]
 
@@ -62,9 +62,9 @@ Token Type: system-user (permanent, no expiry)
 3. **Enter Credentials**
    ```
    Integration Name: ConvoSell WhatsApp
-   Phone Number ID: 106763505640121
-   Business Account ID: 145795181245524
-   Access Token: EAAmT7KdrmssBRAHBKld6w3G0BeSQpo1zmmEF6bz89JPqcwXXRe0JcIaxEbWKggR6ClnLb9KnZCGHOxW8B4W1kUChnK8RdqOCrbsp8WgaKtw8eeuXwmpLn6mOlsUKzZByyzZBZAstCR8vLBk3F4odvgVx4QAN3ZBZCjKMvwLvGoDMaAYBRHIUG57dYKL4eLgb3f5AZDZD
+   Phone Number ID: YOUR_PHONE_NUMBER_ID
+   Business Account ID: YOUR_BUSINESS_ACCOUNT_ID
+   Access Token: YOUR_SYSTEM_USER_ACCESS_TOKEN
    Token Type: system-user
    ```
 
@@ -94,8 +94,8 @@ Token Type: system-user (permanent, no expiry)
 ### Step 3: Configure Webhooks (For Receiving Messages)
 
 1. **Get Your Webhook URL**
-   - Your ngrok URL: `https://thriftless-nonviable-waylon.ngrok-free.dev`
-   - Webhook endpoint: `https://thriftless-nonviable-waylon.ngrok-free.dev/api/whatsapp/webhook`
+   - Your ngrok URL: `https://YOUR_NGROK_URL`
+   - Webhook endpoint: `https://YOUR_NGROK_URL/api/whatsapp/webhook`
 
 2. **Configure in Meta Developer App**
    - Go to: https://developers.facebook.com/apps
@@ -107,7 +107,7 @@ Token Type: system-user (permanent, no expiry)
 
 3. **Webhook Configuration**
    ```
-   Callback URL: https://thriftless-nonviable-waylon.ngrok-free.dev/api/whatsapp/webhook
+   Callback URL: https://YOUR_NGROK_URL/api/whatsapp/webhook
    Verify Token: (Your backend verification token - check backend .env file: WHATSAPP_WEBHOOK_VERIFY_TOKEN)
    ```
 
@@ -226,7 +226,7 @@ Backend Service: WhatsAppCronService
 ### Problem 2: "Phone Number Not Found"
 
 **Solution:**
-1. Verify Phone Number ID is correct: `106763505640121`
+1. Verify Phone Number ID is correct: `YOUR_PHONE_NUMBER_ID`
 2. Check phone number is registered in WhatsApp Manager
 3. Ensure System User has access to WhatsApp account
 4. Wait 5-10 minutes after adding new phone number
@@ -240,7 +240,7 @@ Backend Service: WhatsAppCronService
 4. Review backend logs for error messages
 5. Test with API directly:
    ```bash
-   curl -X POST https://graph.facebook.com/v18.0/106763505640121/messages \
+   curl -X POST https://graph.facebook.com/v18.0/YOUR_PHONE_NUMBER_ID/messages \
      -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
      -H "Content-Type: application/json" \
      -d '{
@@ -254,12 +254,12 @@ Backend Service: WhatsAppCronService
 ### Problem 4: Webhooks Not Receiving Messages
 
 **Solution:**
-1. Verify ngrok is running: `https://thriftless-nonviable-waylon.ngrok-free.dev`
+1. Verify ngrok is running: `https://YOUR_NGROK_URL`
 2. Check webhook configuration in Meta app
 3. Verify webhook subscriptions are active
 4. Test webhook endpoint:
    ```bash
-   curl -X GET "https://thriftless-nonviable-waylon.ngrok-free.dev/api/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=YOUR_VERIFY_TOKEN&hub.challenge=TEST"
+   curl -X GET "https://YOUR_NGROK_URL/api/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=YOUR_VERIFY_TOKEN&hub.challenge=TEST"
    ```
 5. Check backend logs for webhook events
 
@@ -313,7 +313,7 @@ Backend Service: WhatsAppCronService
 - **Frontend Dashboard**: http://localhost:3004/dashboard
 - **Settings**: http://localhost:3004/dashboard/settings
 - **Backend API**: http://localhost:3000/api
-- **Public Webhook**: https://thriftless-nonviable-waylon.ngrok-free.dev/api/whatsapp/webhook
+- **Public Webhook**: https://YOUR_NGROK_URL/api/whatsapp/webhook
 
 ---
 
@@ -324,8 +324,8 @@ Backend Service: WhatsAppCronService
 ```
 === WhatsApp Integration Quick Reference ===
 
-Phone Number ID: 106763505640121
-Business Account ID: 145795181245524
+Phone Number ID: YOUR_PHONE_NUMBER_ID
+Business Account ID: YOUR_BUSINESS_ACCOUNT_ID
 Test Number: +1 555 186 5742
 
 Access Token (System User):

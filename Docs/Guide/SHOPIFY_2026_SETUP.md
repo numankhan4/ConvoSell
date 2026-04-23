@@ -24,8 +24,8 @@ Shopify has updated their authentication approach for better security:
 You already have these from Shopify Partners Dashboard:
 
 ```
-Client ID: d6eaddca527e17659ddf599d6096e11f
-Client Secret (App Secret Key): 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
+Client ID: YOUR_SHOPIFY_CLIENT_ID
+Client Secret (App Secret Key): YOUR_SHOPIFY_CLIENT_SECRET
 ```
 
 **Where to find them again:**
@@ -40,7 +40,7 @@ Client Secret (App Secret Key): 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
 
 ### **Step 2: Get Your Store Domain**
 
-Your development store domain format: `convosell.myshopify.com`
+Your development store domain format: `your-dev-store.myshopify.com`
 
 **To find it:**
 1. Partners Dashboard → **Stores**
@@ -117,17 +117,17 @@ You should see:
 
    **Shop Domain:**
    ```
-   convosell.myshopify.com
+   your-dev-store.myshopify.com
    ```
 
    **Client ID:**
    ```
-   d6eaddca527e17659ddf599d6096e11f
+   YOUR_SHOPIFY_CLIENT_ID
    ```
 
    **Client Secret / App Secret Key:**
    ```
-   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
+   YOUR_SHOPIFY_CLIENT_SECRET
    ```
 
    **API Scopes:** (leave default)
@@ -146,11 +146,11 @@ ConvoSell will automatically:
 1. ✅ Send credentials to backend
 2. ✅ Backend exchanges them with Shopify:
    ```
-   POST https://convosell.myshopify.com/admin/oauth/access_token
+    POST https://your-dev-store.myshopify.com/admin/oauth/access_token
    Body: {
-     "grant_type": "client_credentials",
-     "client_id": "d6eaddca...",
-     "client_secret": "shpss_9956f3..."
+       "grant_type": "client_credentials",
+       "client_id": "YOUR_SHOPIFY_CLIENT_ID",
+       "client_secret": "YOUR_SHOPIFY_CLIENT_SECRET"
    }
    ```
 3. ✅ Shopify returns access token (shpat_xxx)

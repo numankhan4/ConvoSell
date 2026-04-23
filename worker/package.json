@@ -2,13 +2,16 @@
   "name": "whatsapp-crm-worker",
   "version": "1.0.0",
   "description": "BullMQ Worker for WhatsApp CRM",
+  "license": "MIT",
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc",
     "start": "node dist/main.js",
     "start:dev": "ts-node src/main.ts",
     "watch": "nodemon --watch src --exec ts-node src/main.ts",
-    "verification:run-now": "ts-node src/scripts/run-verification-now.ts"
+    "verification:run-now": "ts-node src/scripts/run-verification-now.ts",
+    "lint": "echo \"No worker lint configured yet\"",
+    "test": "echo \"No worker tests configured yet\""
   },
   "dependencies": {
     "@prisma/client": "^5.10.2",

@@ -1,6 +1,6 @@
 # ConvoSell - Convert Conversations into Sales
 
-A production-ready B2B SaaS platform for Pakistani ecommerce sellers (Shopify + Facebook shops) to manage WhatsApp-based customer communication, confirm COD orders, reduce fake orders by 70%, and automate customer engagement.
+An open-source framework for WhatsApp commerce automation, CRM workflows, and Shopify order operations. It is designed as a modular monolith that teams can run locally, extend, and adapt for their own ecommerce support and order-confirmation flows.
 
 ## 🏗️ Architecture
 
@@ -94,6 +94,7 @@ This will:
 2. **Configure environment:**
    - Copy `.env.example` to `.env` in `backend/`, `worker/`, and `frontend/`
    - Update with your credentials (see `CONFIGURATION.md`)
+   - Never commit `.env` files, access tokens, API secrets, or real customer data
 
 3. **Initialize database:**
    ```bash
@@ -163,6 +164,13 @@ Multi-tenant PostgreSQL schema with:
 4. Create PR
 5. Deploy to staging → production
 
+## 🤝 Open Source
+
+- Contributing guide: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Code of conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- Security policy: [SECURITY.md](SECURITY.md)
+- Funding links: [.github/FUNDING.yml](.github/FUNDING.yml)
+
 ## 🎯 MVP Scope (Phase 1)
 
 ✅ WhatsApp order confirmation automation
@@ -179,4 +187,4 @@ Multi-tenant PostgreSQL schema with:
 
 ## 📄 License
 
-Proprietary - All rights reserved
+MIT - see [LICENSE](LICENSE)

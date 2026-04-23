@@ -315,4 +315,4 @@ Failed to subscribe to the messaging_handovers webhook field
 ---
 
 **Last Updated:** April 5, 2026  
-**Your Configuration:** ConvoSell CRM - ngrok: thriftless-nonviable-waylon.ngrok-free.dev
+**Your Configuration:** ConvoSell CRM - ngrok: YOUR_NGROK_URL

@@ -30,21 +30,21 @@ See: https://shopify.dev/docs/apps/launch/protected-customer-data
    **Webhook #1 - Order Creation:**
    - Event: `ORDERS_CREATE` (shown as "Order creation")
    - Format: `JSON`
-   - URL: `https://thriftless-nonviable-waylon.ngrok-free.dev/api/shopify/webhook`
+   - URL: `https://YOUR_NGROK_URL/api/shopify/webhook`
    - API version: Latest (2024-10 or whatever is available)
    - Click **"Save"**
 
    **Webhook #2 - Order Update:**
    - Event: `ORDERS_UPDATED` (shown as "Order update")
    - Format: `JSON`
-   - URL: `https://thriftless-nonviable-waylon.ngrok-free.dev/api/shopify/webhook`
+   - URL: `https://YOUR_NGROK_URL/api/shopify/webhook`
    - API version: Latest
    - Click **"Save"**
 
    **Webhook #3 - Order Cancellation:**
    - Event: `ORDERS_CANCELLED` (shown as "Order cancellation")
    - Format: `JSON`
-   - URL: `https://thriftless-nonviable-waylon.ngrok-free.dev/api/shopify/webhook`
+   - URL: `https://YOUR_NGROK_URL/api/shopify/webhook`
    - API version: Latest
    - Click **"Save"**
 

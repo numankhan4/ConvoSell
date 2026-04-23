@@ -16,7 +16,7 @@ You need to create **3 webhooks** (one for each order event).
 2. Fill in the form:
    - **Event**: Select `ORDERS_CREATE` (shows as "Order creation" in dropdown)
    - **Format**: `JSON`
-   - **URL**: `https://thriftless-nonviable-waylon.ngrok-free.dev/api/shopify/webhook`
+   - **URL**: `https://YOUR_NGROK_URL/api/shopify/webhook`
    - **Webhook API version**: Select latest version (2024-10 or whatever is shown)
 3. **Click "Save"**
 
@@ -26,7 +26,7 @@ You need to create **3 webhooks** (one for each order event).
 2. Fill in the form:
    - **Event**: Select `ORDERS_UPDATED` (shows as "Order update" in dropdown)
    - **Format**: `JSON`
-   - **URL**: `https://thriftless-nonviable-waylon.ngrok-free.dev/api/shopify/webhook`
+   - **URL**: `https://YOUR_NGROK_URL/api/shopify/webhook`
    - **Webhook API version**: Same as above
 3. **Click "Save"**
 
@@ -36,7 +36,7 @@ You need to create **3 webhooks** (one for each order event).
 2. Fill in the form:
    - **Event**: Select `ORDERS_CANCELLED` (shows as "Order cancellation" in dropdown)
    - **Format**: `JSON`
-   - **URL**: `https://thriftless-nonviable-waylon.ngrok-free.dev/api/shopify/webhook`
+   - **URL**: `https://YOUR_NGROK_URL/api/shopify/webhook`
    - **Webhook API version**: Same as above
 3. **Click "Save"**
 
@@ -46,7 +46,7 @@ You need to create **3 webhooks** (one for each order event).
 
 ### URL to Use
 ```
-https://thriftless-nonviable-waylon.ngrok-free.dev/api/shopify/webhook
+https://YOUR_NGROK_URL/api/shopify/webhook
 ```
 
 **Use the SAME URL for all three webhooks** - your backend automatically handles different event types.
@@ -72,9 +72,9 @@ Use the latest version available in the dropdown (likely 2024-10 or 2025-01)
 After creating all 3 webhooks, you should see them listed on the Webhooks page:
 
 ```
-✅ Order creation → https://thriftless-nonviable-waylon.ngrok-free.dev/api/shopify/webhook
-✅ Order update → https://thriftless-nonviable-waylon.ngrok-free.dev/api/shopify/webhook
-✅ Order cancellation → https://thriftless-nonviable-waylon.ngrok-free.dev/api/shopify/webhook
+✅ Order creation → https://YOUR_NGROK_URL/api/shopify/webhook
+✅ Order update → https://YOUR_NGROK_URL/api/shopify/webhook
+✅ Order cancellation → https://YOUR_NGROK_URL/api/shopify/webhook
 ```
 
 ### Test with a New Order
@@ -117,7 +117,7 @@ You should immediately see in your backend terminal:
 
 1. **Check ngrok is running**:
    - Your ngrok terminal should show "Session Status: online"
-   - URL should be: `https://thriftless-nonviable-waylon.ngrok-free.dev`
+   - URL should be: `https://YOUR_NGROK_URL`
 
 2. **Check backend is running**:
    - You should see `[Nest] Application is running on: http://localhost:3000`
