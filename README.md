@@ -151,10 +151,13 @@ Multi-tenant PostgreSQL schema with:
 
 ## 📦 Deployment
 
-- **Frontend**: Vercel (zero-config)
-- **Backend + Worker**: AWS ECS Fargate (Dockerfile provided)
-- **Database**: AWS RDS PostgreSQL
-- **Cache/Queue**: AWS ElastiCache Redis
+- **Frontend**: Vercel (free tier supported)
+- **Backend + Worker**: Render/Railway/Fly (free or low-cost tiers)
+- **Database**: Neon PostgreSQL (free tier)
+- **Cache/Queue**: Upstash Redis (free tier)
+
+If you are launching publicly from local development, use:
+- [Docs/Guide/PUBLIC_LAUNCH_AND_FREE_DEPLOY.md](Docs/Guide/PUBLIC_LAUNCH_AND_FREE_DEPLOY.md)
 
 ## 📝 Development Workflow
 
