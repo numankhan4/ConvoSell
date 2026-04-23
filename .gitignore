@@ -15,8 +15,12 @@ out/
 
 # Environment
 .env
+.env.*
 .env*.local
 .env.production
+!.env.example
+!**/.env.example
+!**/.env.local.example
 
 # IDE
 .vscode/
@@ -28,6 +32,13 @@ out/
 # OS
 .DS_Store
 Thumbs.db
+
+# Backup artifacts
+*.backup
+*.bak
+*.tmp
+*.dump
+Docs/Compliance/Backup-Drills/evidence/*.sql
 
 # Prisma
 prisma/migrations/**/migration.sql

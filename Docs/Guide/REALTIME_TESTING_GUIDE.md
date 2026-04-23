@@ -3,10 +3,10 @@
 ## 🎯 Complete Testing Workflow
 
 ### Prerequisites Checklist
-- ✅ Ngrok running: `https://thriftless-nonviable-waylon.ngrok-free.dev`
+- ✅ Ngrok running: `https://YOUR_NGROK_URL`
 - ✅ Backend running on port 3000
 - ✅ Frontend running on port 3004
-- ✅ Webhook verify token set: `mySecureWebhookToken2024`
+- ✅ Webhook verify token set: `YOUR_VERIFY_TOKEN`
 - ✅ WhatsApp Business API connected in Settings page
 
 ---
@@ -123,13 +123,13 @@ curl.exe -X POST "http://localhost:3000/api/whatsapp/webhook" `
 
 ### Check 1: Is Webhook Verified?
 ```bash
-curl "http://localhost:3000/api/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=mySecureWebhookToken2024&hub.challenge=test123"
+curl "http://localhost:3000/api/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=YOUR_VERIFY_TOKEN&hub.challenge=test123"
 # Should return: test123
 ```
 
 ### Check 2: Is Ngrok Tunnel Active?
 ```bash
-curl "https://thriftless-nonviable-waylon.ngrok-free.dev/api/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=mySecureWebhookToken2024&hub.challenge=hello"
+curl "https://YOUR_NGROK_URL/api/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=YOUR_VERIFY_TOKEN&hub.challenge=hello"
 # Should return: hello
 ```
 

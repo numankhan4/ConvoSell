@@ -90,7 +90,7 @@ Authorization: Bearer <jwt_token>
     "verifyToken": "whv_a1b2c3d4e5f6...",
     "securityNote": "Each workspace has a unique webhook URL and token for better security isolation.",
     "legacyCallbackUrl": "https://your-domain.com/api/whatsapp/webhook",
-    "legacyVerifyToken": "mySecureWebhookToken2024"
+    "legacyVerifyToken": "YOUR_VERIFY_TOKEN"
   }
 }
 ```

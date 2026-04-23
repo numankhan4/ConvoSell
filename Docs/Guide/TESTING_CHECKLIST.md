@@ -69,7 +69,7 @@
 1. Open ngrok inspector: http://127.0.0.1:4040
 2. In Meta console, configure webhook
 3. Callback URL: https://[ngrok-url]/api/whatsapp/webhook
-4. Verify Token: mySecureWebhookToken2024
+4. Verify Token: YOUR_VERIFY_TOKEN
 5. Click "Verify and Save"
 
 **Expected:**
