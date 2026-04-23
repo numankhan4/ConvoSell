@@ -1,7 +1,7 @@
 {
   "name": "whatsapp-crm",
   "version": "1.0.0",
-  "description": "WhatsApp CRM for Pakistani COD Sellers - Root Package",
+  "description": "Open-source framework for WhatsApp commerce automation and CRM workflows",
   "private": true,
   "scripts": {
     "start": "node scripts/start-all.js",
@@ -23,7 +23,8 @@
     "backend": "cd backend && npm run start:dev",
     "worker": "cd worker && npm run start:dev",
     "frontend": "cd frontend && npm run dev",
-    "lint:all": "cd backend && npm run lint && cd ../frontend && npm run lint"
+    "lint:all": "cd backend && npm run lint && cd ../frontend && npm run lint && cd ../worker && npm run lint",
+    "test:all": "cd backend && npm test && cd ../frontend && npm test && cd ../worker && npm test"
   },
   "keywords": [
     "whatsapp",
@@ -32,8 +33,16 @@
     "ecommerce",
     "pakistan"
   ],
-  "author": "",
-  "license": "UNLICENSED",
+  "author": "Numan Ul Haq",
+  "license": "MIT",
+  "homepage": "https://github.com/numankhan4/ConvoSell#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/numankhan4/ConvoSell.git"
+  },
+  "bugs": {
+    "url": "https://github.com/numankhan4/ConvoSell/issues"
+  },
   "engines": {
     "node": ">=18.0.0",
     "npm": ">=9.0.0"
